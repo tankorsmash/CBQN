@@ -64,11 +64,11 @@ static NOINLINE void* BN(allocateMore)(ux bucket, u8 type, ux from, ux to) {
   #if ALLOC_MODE==0
     reqsz = prepAllocSize(reqsz);
   #endif
+  if (reqsz != (size_t) reqsz) thrOOM(); // otherwise it gets silently truncated in 32-bit builds
   #if NO_MMAP
     u8* mem = calloc(reqsz, 1);
     if (mem_log_enabled) fprintf(stderr, "\n");
   #else
-    if (reqsz != (size_t) reqsz) thrOOM(); // otherwise it gets silently truncated in 32-bit builds
     u8* mem = MMAP(reqsz);
     if (mem_log_enabled) fprintf(stderr, ": %s\n", mem==MAP_FAILED? "failed" : "success");
     if (mem==MAP_FAILED) thrOOM();
@@ -76,8 +76,8 @@ static NOINLINE void* BN(allocateMore)(ux bucket, u8 type, ux from, ux to) {
   if (ptr2u64(mem)+sz > (1ULL<<48)) fatal("mmap returned address range above 2⋆48");
   #if ALLOC_MODE==0
     mem+= ALLOC_PADDING;
-    // ux off = offsetof(TyArr,a);
-    // if (off&31) mem+= 32-(off&31); // align heap such that arr->a is 32-byte-aligned
+    ux off = offsetof(TyArr,a);
+    if (off&31) mem+= 32-(off&31); // align heap such that arr->a is 32-byte-aligned
   #endif
   EmptyValue* c = (void*)mem;
   

@@ -121,7 +121,7 @@ def { w64i, w64s, w64u, w64f} = genchks{w64}
 def {w128i,w128s,w128u,w128f} = genchks{w128}
 def {w256i,w256s,w256u,w256f} = genchks{w256}
 
-def trunc{T, x:U if isint{T} and isint{U} and T<=U} = emit{T, '', x}
+def trunc{T, x:U if isint{T} and isint{U} and width{T}<=width{U}} = emit{T, '', x}
 def trunc{T, x if knum{x}} = cast{T, x}
 
 def tern{c, T, F if any_int{c}} = if(c) T else F
@@ -166,6 +166,8 @@ def arch_defvw = if (hasarch{'AVX2'}) 256 else 128
 def has_simd = hasarch{'X86_64'} or hasarch{'AARCH64'}
 def has_sel = hasarch{'AVX2'} or hasarch{'AARCH64'}
 def fast_BMI2{} = hasarch{'BMI2'} and not SLOW_PDEP
+def assert_hom{{...vs}} = each{assert_hom, vs}
+def assert_hom{x:[_]E if quality{E}=='u'} = x
 
 # test if vector has a specific width & element type
 def lvec = match { {[n]T, n, (width{T})} => 1; {T, n, w} => 0 }
@@ -177,8 +179,9 @@ def {
   all_hom,any_hom,blend_hom,hom_to_int,store_masked_hom,store_blended_hom,
   all_top,any_top,blend_top,top_to_int,store_masked_top,store_blended_top,
   load_expand_bits,make,mask_to_hom,mulw_split,mulh,narrow,narrow_trunc,narrow_pair,
-  pair,pdep,pext,rbit,sel,shuf_ind,reverse_units,
+  pair,pdep,pext,rbit,sel,shuf_ind,reverse_units,broadcast_sel,absdiff_sum,mul_sum,
   unord,unzip,vfold,vec_select,vec_shuffle,widen,widen_upper,multishift,
+  addp,addpw,addpwa,
 }
 
 # extended by arch/*/select where applicable
@@ -218,6 +221,7 @@ def hom_to_int{...vs if length{vs}>1} = {
 }
 def hom_to_int{x if ktup{x}} = hom_to_int{...x}
 def first_hom{x:[_]_} = ctz_ext{hom_to_int_ext{x}}
+def popc_hom{v:(u1)} = promote{ux, v}
 def popc_hom{x:[_]_} = {
   def {n,m} = hom_to_int_ext{x}
   popc{m} / n
@@ -230,6 +234,7 @@ def try_first_hom{x:[_]_} = {
     ok = 1
     val = ctz_ext{ex}
   }
+  tup{val, ok}
 }
 
 def load{V=[k]E, ptr:*E   } = load{*V~~ptr, 0}
@@ -247,14 +252,7 @@ extend (extend_each{accept_vec_ptr}){
 
 
 if_inline (hasarch{'X86_64'}) {
-  include 'arch/iintrinsic/basic'
-  include 'arch/iintrinsic/select'
-  include './sse2'
-  include './sse'
-  include './avx'
-  include './avx2'
-  include './avx512'
-  def any_bit{x:[_]_} = ~and_bit_none{x, x}
+  include './x86'
 } else if_inline (hasarch{'AARCH64'}) {
   include 'arch/neon_intrin/basic'
   include 'arch/neon_intrin/select'
@@ -263,7 +261,10 @@ if_inline (hasarch{'X86_64'}) {
 } else {
   def {
     __adds,__subs,__sqrt,vec_broadcast,vec_make,
-    vec_shift_left_128,vec_shift_right_128,vec_merge_shift_right,
+    vec_shift_left,vec_shift_left_128,
+    vec_shift_right,vec_shift_right_128,
+    vec_merge_shift_left,vec_merge_shift_left_128,
+    vec_merge_shift_right,vec_merge_shift_right_128,
     vec_shuffle16_lo
   }
 }
@@ -286,7 +287,7 @@ def undef_promote{T, x:T} = x
 def zero_promote{T, x:T} = x
 def cvt{T, x:[_]T} = x
 
-def broadcast{V=[_]T, v} = vec_broadcast{V, promote{T,v}}
+def broadcast{V=[_]T, v} = vec_broadcast{V, if (knum{v}) v else promote{T,v}}
 def make{V=[_]_, ...xs} = vec_make{V, ...xs}
 def iota{V=[k]_} = make{V, ...iota{k}}
 def absu{a:[_]_} = ty_u{abs{a}}

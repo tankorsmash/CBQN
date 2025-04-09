@@ -261,6 +261,7 @@ B sys_c1(B t, B x);
 B out_c1(B t, B x) {
   if (isAtm(x) || RNK(x)!=1) thrM("•Out 𝕩: 𝕩 must be a string");
   printsB(x); printf("\n");
+  fflush(stdout);
   return x;
 }
 B show_c1(B t, B x) {
@@ -272,6 +273,7 @@ B show_c1(B t, B x) {
       printI(x);
     #endif
     printf("\n");
+    fflush(stdout);
   #endif
   return x;
 }
@@ -1389,7 +1391,7 @@ B nKeys_c1(B t, B x) {
   return r.b;
 }
 B nGet_c2(B t, B w, B x) {
-  if (!isNsp(w)) thrM("𝕨•ns.Get 𝕩: 𝕨 must be a namespace");
+  if (!isNsp(w)) thrM("𝕨 •ns.Get 𝕩: 𝕨 must be a namespace");
   vfyStr(x, "•ns.Get", "𝕩");
   x = name_normalize(x);
   B r = ns_getNU(w, x, true);
@@ -1397,7 +1399,7 @@ B nGet_c2(B t, B w, B x) {
   return inc(r);
 }
 B nHas_c2(B t, B w, B x) {
-  if (!isNsp(w)) thrM("𝕨•ns.Has 𝕩: 𝕨 must be a namespace");
+  if (!isNsp(w)) thrM("𝕨 •ns.Has 𝕩: 𝕨 must be a namespace");
   vfyStr(x, "•ns.Has", "𝕩");
   x = name_normalize(x);
   B r = ns_getNU(w, x, false);

@@ -45,6 +45,7 @@
 //       COULD use pdep or similar to avoid overhead on small results
 //     Otherwise, factor into power of 2 times odd
 //       COULD fuse 2×odd, since 2/odd/ has a larger intermediate
+//   𝕨≤256, AVX2: Modular permutation with shift-based masks
 // Other typed 𝕩 uses +`, or lots of Singeli
 //   Fixed shuffles, factorization, partial shuffles, self-overlapping
 // Otherwise, cell-by-cell copying
@@ -779,12 +780,29 @@ B slash_c2(B t, B w, B x) {
     if (xl == 0) {
       u64* xp = bitany_ptr(x);
       u64* rp; r = m_bitarrv(&rp, s);
-      #if SINGELI
-      if (wv <= 64) si_constrep_bool(wv, xp, rp, s);
-      else
+      #if SINGELI_AVX2
+      if (wv <= 256) si_constrep_bool(wv, xp, rp, s);
+      #elif SINGELI
+      if (wv <= 128) si_constrep_bool(wv, xp, rp, s);
+      #else
+      if (wv <= 64) { BOOL_REP_XOR_SCAN(wv) }
       #endif
-      if (wv <= 256) { BOOL_REP_XOR_SCAN(wv) }
-      else           { BOOL_REP_OVER(wv, xlen) }
+      else {
+        // Like BOOL_REP_OVER but predictable
+        u64 ri=0, c=0; usz j=0;
+        usz n=wv/64-1;
+        for (usz i = 0; i < xlen; i++) {
+          u64 v = -(1 & xp[i/64]>>(i%64));
+          u64 r0 = c ^ ((v^c) << (ri%64));
+          c = v;
+          ri += wv; usz e = ri/64;
+          rp[e-1] = v; // This allows the loop to be constant-length
+          rp[j] = r0;
+          for (usz k=0; k<n; k++) rp[j+1+k] = v;
+          j = e;
+        }
+        if (ri%64) rp[j] = c;
+      }
       goto atmW_maybesh;
     } else {
       u8 xk = xl-3;
@@ -866,6 +884,10 @@ static B finish_sorted_count(B r, usz* ov, usz* oc, usz on) {
 }
 #endif
 
+static NORETURN void slash_im_bad(f64 c) {
+  if (c < 0) thrM("/⁼𝕩: 𝕩 cannot contain negative numbers");
+  else thrM("/⁼𝕩: 𝕩 must consist of natural numbers");
+}
 B slash_im(B t, B x) {
   if (!isArr(x) || RNK(x)!=1) thrM("/⁼𝕩: 𝕩 must be a list");
   u8 xe = TI(x,elType);
@@ -886,7 +908,7 @@ B slash_im(B t, B x) {
     i##N* rp; r = m_i##N##arrv(&rp, RIA); \
     for (usz i=0; i<RIA; i++) rp[i]=0;
   #define TRY_SMALL_OUT(N) \
-    if (xp[0]<0) thrM("/⁼𝕩: 𝕩 cannot contain negative numbers");       \
+    if (xp[0]<0) thrM("/⁼𝕩: 𝕩 cannot contain negative numbers");             \
     usz a=1; while (a<xia && xp[a]>xp[a-1]) a++;                             \
     u##N max=xp[a-1];                                                        \
     usz rmax=xia;                                                            \
@@ -902,7 +924,7 @@ B slash_im(B t, B x) {
         break;                                                               \
       }                                                                      \
       for (usz i=a; i<xia; i++) { u##N c=xp[i]; if (c>max) max=c; }          \
-      if ((i##N)max<0) thrM("/⁼𝕩: 𝕩 cannot contain negative numbers"); \
+      if ((i##N)max<0) thrM("/⁼𝕩: 𝕩 cannot contain negative numbers");       \
       usz ria = max + 1;                                                     \
       if (xia < ria/8) {                                                     \
         u8 maxcount = 0;                                                     \
@@ -939,7 +961,7 @@ B slash_im(B t, B x) {
       usz os = xia>>15;                                                      \
       TALLOC(u16, ov, os+1);                                                 \
       i##N max = simd_count_i##N((u16*)rp, (u16*)ov, xp, xia, 0);            \
-      if (max < 0) thrM("/⁼𝕩: 𝕩 cannot contain negative numbers");     \
+      if (max < 0) thrM("/⁼𝕩: 𝕩 cannot contain negative numbers");           \
       usz ria = (usz)max + 1;                                                \
       if (ria < sa) r = C2(take, m_f64(ria), r);                             \
       r = finish_small_count(r, ov);                                         \
@@ -963,7 +985,7 @@ B slash_im(B t, B x) {
       i##N* xp = i##N##any_ptr(x);                                             \
       u##N max=xp[0];                                                          \
       for (usz i=1; i<xia; i++) { u##N c=xp[i]; if (c>max) max=c; }            \
-      if ((i##N)max<0) thrM("/⁼𝕩: 𝕩 cannot contain negative numbers");   \
+      if ((i##N)max<0) thrM("/⁼𝕩: 𝕩 cannot contain negative numbers");         \
       usz ria = max + 1;                                                       \
       TALLOC(usz, t, ria);                                                     \
       for (usz j=0; j<ria; j++) t[j]=0;                                        \
@@ -978,8 +1000,8 @@ B slash_im(B t, B x) {
     case el_f64: {
       f64* xp = f64any_ptr(x);
       usz i,j; f64 max=-1;
-      for (i = 0; i < xia; i++) { f64 c=xp[i]; if (c!=(usz)c) thrM("/⁼𝕩: 𝕩 must consist of natural numbers"); if (c<=max) break; max=c; }
-      for (j = i; j < xia; j++) { f64 c=xp[j]; if (c!=(usz)c) thrM("/⁼𝕩: 𝕩 must consist of natural numbers"); max=c>max?c:max; if (c<0) thrM("/⁼: Argument cannot contain negative numbers"); }
+      for (i = 0; i < xia; i++) { f64 c=xp[i]; if (!q_fusz(c)) slash_im_bad(c); if (c<=max) break; max=c; }
+      for (j = i; j < xia; j++) { f64 c=xp[j]; if (!q_fusz(c)) slash_im_bad(c); max=c>max?c:max; }
       usz ria = max+1; if (ria==0) thrOOM();
       if (i==xia) {
         u64* rp; r = m_bitarrv(&rp, ria); for (usz i=0; i<BIT_N(ria); i++) rp[i]=0;

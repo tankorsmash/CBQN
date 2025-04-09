@@ -1,0 +1,57 @@
+include './base'
+include './vecfold'
+include './mask'
+include './accumulator'
+
+def __lt{a:V=[_]_, b if knum{b}} = a < V**b
+def __eq{a:V=[_]_, b if knum{b}} = a == V**b
+
+def group_statistics{T} = {
+  def usz_accumulator = count_accumulator{usz, ...}
+  def max_accumulator = assoc_accumulator{max, ..., -1}
+  
+  def {types, acc_gen, ops} = each{tup,
+    tup{u8,  any_accumulator, {_,w} => w <  -1}, # bad
+    tup{usz, usz_accumulator, {_,w} => w == -1}, # neg
+    tup{u8,  all_accumulator, {p,w} => p <= w }, # sort
+    tup{usz, usz_accumulator, {p,w} => p != w }, # change
+    tup{T,   max_accumulator, {_,w} => w      }  # max
+  }
+  
+  fn group_statistics{T}(w:*void, xn:usz, outs:each{__pnt,types}) : void = {
+    def w = *T~~w
+    def accs = if (has_simd) {
+      def bulk = arch_defvw/width{T}
+      def V = [bulk]T
+      def VU = ty_u{V}
+      
+      def unr = 2
+      def accs = each{{a,T} => a{unr, if (quality{T}=='u') VU else V}, acc_gen, types}
+      
+      prev_v:V = load{V, w-1} | V~~mask_of_first{V, 1}
+      @for_mu{bulk, unr, mu_extra{...accs}}(curr_vs in tup{V,w}, next_vs in tup{V,w+bulk-1}, M in 'm' over xn) {
+        def prev_es = shiftright{tup{prev_v}, next_vs}
+        each{{a, F} => {
+          a{'acc', M, each{F, prev_es, curr_vs}}
+        }, accs, ops}
+        prev_v = select{next_vs,-1}
+      }
+      accs
+    } else {
+      p:T = -1
+      def accs = each{{a,T} => a{'!', T}, acc_gen, types}
+      @for (c in w over xn) {
+        each{{a, F} => a{'acc', F{p, c}}, accs, ops}
+        p = c
+      }
+      accs
+    }
+    def results = each{{a} => a{'vec_result'}, accs}
+    each{{out:*T, r} => store{out, 0, promote{T,r}}, outs, results}
+  }
+  group_statistics{T}
+}
+
+export{'si_group_statistics_i8',  group_statistics{i8}}
+export{'si_group_statistics_i16', group_statistics{i16}}
+export{'si_group_statistics_i32', group_statistics{i32}}

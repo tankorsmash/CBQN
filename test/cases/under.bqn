@@ -2,9 +2,15 @@
 %DEF tvar %USE var ⋄ _tvar ← {F _𝕣 x: (CLR@) ⊢ {F 𝕩 V x}¨ LV 𝕩; w F _𝕣 x: (CLR@) ⊢ (LV 𝕨) {(𝕨 V w) F 𝕩 V x}⌜ LV 𝕩}
 %DEF eqvar %USE tvar ⋄ _eqvar ← {r ← 𝕨 𝔽 _tvar 𝕩 ⋄ !∘≡⟜(⊑r)¨ r ⋄ ⊑r}
 %DEF evar %USE tvar ⋄ _evar ← {ok←{⇐} ⋄ r←⥊𝕨 ok∘𝔽⎊{𝕊: •CurrentError@} _tvar 𝕩 ⋄ {⊑ok∊r? !"TEST FAIL: variation didn't error"; ("TEST FAIL: varying error messages"⊸⋈ ! 1=≠)⍷r ⋄ !⊑r}}
+%DEF eqerr %USE eqvar ⋄ _eqerr ← {ok←{⇐} ⋄ r←⥊𝕨 ok∘𝔽⎊{𝕊: •CurrentError@}⌜ 𝕩 ⋄ {⊑ok∊r? !"TEST FAIL: case didn't error"; ("TEST FAIL: varying error messages"⊸⋈ ! 1=≠)⍷r ⋄ !⊑r}}
 # ¨ & ˘
 # !% ⊢⌾(⊢¨) 4 # TODO enable
 # !% ⊢⌾(⊢˘) 4 # TODO enable
+
+# ¯0¨⌾((⥊𝕨)⊸⊏) 𝕩
+%DEF nz InsNZ ← {⥊ (¯64↑1)˘⌾((⥊𝕨)⊸⊏)⌾(64‿1•bit._cast) ≍˘ 𝕩} ⋄ IsNZ ← {(¯64↑1)⊸≡˘ 64‿1•bit._cast ≍˘ 𝕩}
+%USE nz ⋄ IsNZ⊸⋈ 1‿2 InsNZ 0.5‿0‿1‿0‿¯1‿2 %% ⟨0‿1‿1‿0‿0‿0, 0.5‿0‿0‿0‿¯1‿2⟩
+%USE nz ⋄ IsNZ⊸⋈ 1‿2 InsNZ   0‿0‿1‿0‿¯1‿2 %% ⟨0‿1‿1‿0‿0‿0,   0‿0‿0‿0‿¯1‿2⟩
 
 # ⌾(F⊸Op)
 10⊸+⌾((2÷˜≢)⊸⊑) ↕10 %% 0‿1‿2‿3‿4‿15‿6‿7‿8‿9
@@ -46,9 +52,13 @@ a←10‿10‿10⥊↕1000 ⋄ ! a ≡ a⌾((↕≢a)⊸⊑) a
 n←500 ⋄ a←↕n ⋄ i←(-n)+↕2×n ⋄ r←⌽(2×n)⥊a ⋄ ! (⌽a) ≡ r⌾(i⊸⊏) a
 !"𝕨⊏𝕩: 𝕩 cannot be a unit" % 0‿0⌾(0‿0⊸⊏) <0
 !"𝕨⊏𝕩: 𝕩 cannot be a unit" % %USE evar ⋄ (↕0) {⊢⌾(𝕨⊸⊏)𝕩}_evar <0
-!"𝔽⌾(a⊸⊏)𝕩: Indexing out-of-bounds (¯11∊a, ⟨10⟩≡≢𝕩)" % %USE evar ⋄ 5‿¯11 {0‿1⌾(𝕨⊸⊏)𝕩}_evar 10⥊1‿0‿1
-!"𝔽⌾(a⊸⊏)𝕩: Indexing out-of-bounds (10∊a, ⟨10⟩≡≢𝕩)"  % %USE evar ⋄ 9‿10  {0‿1⌾(𝕨⊸⊏)𝕩}_evar 10⥊1‿0‿1
-!"𝔽⌾(a⊸⊏)𝕩: Indexing out-of-bounds (10∊a, ⟨10⟩≡≢𝕩)"  % %USE evar ⋄ "ab" {𝕨⌾(9‿10⊸⊏)𝕩}_evar 10⥊"foo"
+!"𝕨⊏𝕩: Indexing out-of-bounds (¯11∊𝕨, 10≡≠𝕩)" % %USE evar ⋄ 5‿¯11 {0‿1⌾(𝕨⊸⊏)𝕩}_evar 10⥊1‿0‿1
+!"𝕨⊏𝕩: Indexing out-of-bounds (10∊𝕨, 10≡≠𝕩)" %  %USE evar ⋄ 9‿10  {0‿1⌾(𝕨⊸⊏)𝕩}_evar 10⥊1‿0‿1
+!"𝕨⊏𝕩: Indexing out-of-bounds (10∊𝕨, 10≡≠𝕩)" %  %USE evar ⋄ "ab" {𝕨⌾(9‿10⊸⊏)𝕩}_evar 10⥊"foo"
+!"𝕨⊏𝕩: Indexing out-of-bounds (4.611686018427388e18∊𝕨, 3≡≠𝕩)" % %USE eqerr ⋄ {𝕩⌾((3⥊2⋆62)⊸⊏) "abc"}_eqerr ⟨"abc", {𝕊: "abc"}⟩
+%USE eqerr ⋄ ! ⊑ (<⋈⁼ ⍷{1⊣𝕩⌾((3⥊2⋆63)⊸⊏) "abc"}⎊{𝕊: •CurrentError@}¨ ⟨"abc", {𝕊: "abc"}⟩) ∊ "Integer out of range: 9.223372036854776e18"‿"𝕨⊏𝕩: Indexing out-of-bounds (9.223372036854776e18∊𝕨, 3≡≠𝕩)"
+!"Expected integer, got 1.1" % %USE eqerr ⋄ {𝕩⌾((3⥊1.1)⊸⊏) ↕3}_eqerr ⟨↕3, {1+𝕩}⟩
+!"𝕨⊏𝕩: Indexing out-of-bounds (10∊𝕨, 3≡≠𝕩)" % %USE eqerr ⋄ {𝕩⌾(10‿11‿12⊸⊏) ↕3}_eqerr ⟨↕3, {1+𝕩}⟩
 100⊸+⌾(⟨1‿2‿4⟩⊸⊏) <¨↕10 %% <¨ 0‿101‿102‿3‿104‿5‿6‿7‿8‿9
 100⊸+⌾(1‿2‿4⊸⊏) <¨↕10   %% <¨ 0‿101‿102‿3‿104‿5‿6‿7‿8‿9
 100⊸+⌾(1‿2‿4⊸⊏) ↕10     %%    0‿101‿102‿3‿104‿5‿6‿7‿8‿9
@@ -80,6 +90,8 @@ n←500 ⋄ a←↕n ⋄ i←(-n)+↕2×n ⋄ r←⌽(2×n)⥊a ⋄ ! (⌽a) ≡
 %USE eqvar ⋄ 1⊸+⌾((2/↕5)⊸⊏) _eqvar ≍˘ ↕10 %% ≍˘ <⟜5⊸+ ↕10
 %USE eqvar ⋄ •internal.Keep⌾((2/↕5)⊸⊏) _eqvar 10‿0‿4⥊0 %% 10‿0‿4⥊0
 %USE eqvar ⋄ (<⟨⟩) {•internal.Keep⌾(𝕨⊸⊏) 𝕩}_eqvar¨ ⟨0‿1, "ab"‿"cd"⟩ %% ⟨0‿1, "ab"‿"cd"⟩
+!"𝔽⌾(a⊸⊏): Incompatible result elements" % %USE evar ⋄ ⟨0÷0,0÷0⟩ {𝕨⌾(0‿0⊸⊏) 𝕩}_evar 3⥊0
+%USE eqvar ⋄ %USE nz ⋄ 0‿0 {(0 InsNZ 2⥊0)⌾(𝕨⊸⊏)𝕩}_eqvar 3⥊3 %% 0‿3‿3
 
 
 # ⥊
@@ -158,20 +170,20 @@ n←500 ⋄ a←↕n ⋄ i←(-n)+↕2×n ⋄ r←⌽(2×n)⥊a ⋄ ! (⌽a) ≡
 ⊢⌾< 4 %% 4
 (<5)⌾< 4 %% 5
 {<"cd"}⌾< "ab" %% "cd"
-!"<⁼: Argument wasn't a rank 0 array" % 4⌾< "ab"
-!"<⁼: Argument wasn't a rank 0 array" % {⇐}⌾< "ab"
-!"<⁼: Argument wasn't a rank 0 array" % ≍⌾< 2
+!"<⁼𝕩: Argument wasn't a rank 0 array" % 4⌾< "ab"
+!"<⁼𝕩: Argument wasn't a rank 0 array" % {⇐}⌾< "ab"
+!"<⁼𝕩: Argument wasn't a rank 0 array" % ≍⌾< 2
 
 # ⋈
 ⊢⌾⋈ 4 %% 4
 (⋈5)⌾⋈ 4 %% 5
 {⋈"cd"}⌾⋈ "ab" %% "cd"
-!"⋈⁼: Argument wasn't a length-1 list" % 4⌾⋈ "ab"
-!"⋈⁼: Argument wasn't a length-1 list" % {⇐}⌾⋈ "ab"
-!"⋈⁼: Argument wasn't a length-1 list" % ≍⌾⋈ 2
-!"⋈⁼: Argument wasn't a length-1 list" % (<4)⌾⋈ 2
+!"⋈⁼𝕩: Argument wasn't a length-1 list" % 4⌾⋈ "ab"
+!"⋈⁼𝕩: Argument wasn't a length-1 list" % {⇐}⌾⋈ "ab"
+!"⋈⁼𝕩: Argument wasn't a length-1 list" % ≍⌾⋈ 2
+!"⋈⁼𝕩: Argument wasn't a length-1 list" % (<4)⌾⋈ 2
 
 # k⊸⌽
-!"⌽⁼: 𝕩 must have rank at least 1" % 1⌾(2⊸⌽) ↕10
+!"𝕨⌽⁼𝕩: 𝕩 must have rank at least 1" % 1⌾(2⊸⌽) ↕10
 ⊏⌾(2⊸⌽) 10‿10⥊↕100 %% 28‿29‿20‿21‿22‿23‿24‿25‿26‿27
 ≍⌾(1‿2⊸⌽) 5‿5⥊↕25 %% 1‿5‿5⥊22‿23‿24‿20‿21‿2‿3‿4‿0‿1‿7‿8‿9‿5‿6‿12‿13‿14‿10‿11‿17‿18‿19‿15‿16

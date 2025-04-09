@@ -130,6 +130,9 @@ w←1‿1⥊1 ⋄ x←2⥊1 ⋄ w‿x <¨↩   ⋄ {! (∾⟨"𝕨",•Repr𝕩,
 !"Integer out of range: 1e20" % %USE evar ⋄ /_evar 1e20⌾(100⊸⊑) 200⥊10
 ! (//⁼)⊸≡8‿15‿25‿32‿90‿101‿155‿165‿584‿594‿894‿912‿1312‿1328‿1350‿1367‿1391‿1407‿1469‿1486‿1559‿1566‿1576‿1582‿1592‿1599‿1609‿1616‿1626‿1635‿4086‿4093‿4114‿4122‿4141‿4149‿4169‿4177
 /⁼1e4⥊1‿2 %% 0‿5000‿5000
+!"/⁼𝕩: 𝕩 cannot contain negative numbers" % %USE evar ⋄ /⁼_evar (↕10) ∾ ¯2 ∾ 20+↕10
+!"/⁼𝕩: 𝕩 must consist of natural numbers" % %USE evar ⋄ /⁼_evar (↕10) ∾ 2.2 ∾ 20+↕10
+!"/⁼𝕩: 𝕩 must consist of natural numbers" % %USE evar ⋄ /⁼_evar (↕10) ∾ 1e20 ∾ 20+↕10
 
 # 𝕨⊏𝕩
 •internal.ElType¨ {(100⥊↕2)⊏𝕨‿𝕩}⌜˜ ⟨0, 1, 2, 127, 128, 32767, 32768, ¯32767, ¯32768, ¯32769, ¯1+2⋆31, 2⋆31, @, @+1, @+255, @+256, @+1114111, {⇐}, 1‿2⟩ %% (8-(=⌜˜<⟜5)×8-⌈⌜˜) 0‿0‿1‿1‿2‿2‿3‿2‿2‿3‿3‿4‿5‿5‿5‿6‿7‿8‿8
@@ -150,15 +153,19 @@ w←1‿1⥊1 ⋄ x←2⥊1 ⋄ w‿x <¨↩   ⋄ {! (∾⟨"𝕨",•Repr𝕩,
 !"𝕨⊏𝕩: Indexing out-of-bounds (¯4∊𝕨, 3≡≠𝕩)" % %USE evar ⋄ (-1‿4‿2‿0‿10‿5‿6) ⊏_evar 1‿0‿1
 !"𝕨⊏𝕩: Indexing out-of-bounds (4000∊𝕨, 1001≡≠𝕩)" %  %USE evar ⋄ ( 1000×1‿4‿2‿0‿10‿5‿6) ⊏_evar 1001⥊1‿0‿1
 !"𝕨⊏𝕩: Indexing out-of-bounds (¯4000∊𝕨, 1001≡≠𝕩)" % %USE evar ⋄ (¯1000×1‿4‿2‿0‿10‿5‿6) ⊏_evar 1001⥊1‿0‿1
+!"𝕨⊏𝕩: Indexing out-of-bounds (3∊𝕨, 2≡≠𝕩)" % %USE evar ⋄ (⌽↕4) ⋈⊸⊏_evar "ab"
+!"Expected integer, got namespace" % %USE eqerr ⋄ ⟨{⇐}, <{⇐}⟩ ⊏_eqerr ⟨↕10, 10‿10⥊↕100⟩
+!"𝕨⊏𝕩: 𝕨 must be an array of numbers or list of such arrays" % %USE eqerr ⋄ evar ← {%USE evar ⋄ evar} ⋄ ⟨⋈⋈{⇐}, <<<4, ⋈⋈⋈4, 1.5‿{⋈}⟩ ⊏_evar _eqerr ⟨↕10, 10‿10⥊↕100⟩
+!"𝕨⊏𝕩: Compound 𝕨 must have rank at most 1" % %USE eqerr ⋄ ⟨≍⋈↕5⟩ ⊏_eqerr ⟨↕10, 10‿10⥊↕100⟩
+!"Expected integer, got namespace" % %USE eqerr ⋄ ⟨≍⋈{⇐}, ⋈{⇐}⟩ ⊏_eqerr ⟨↕10, 10‿10⥊↕100⟩
+%USE eqvar ⋄ (⌽↕4) ⋈⊸⊏_eqvar "abcdefgh" %% "dcba"
+(<↕3) ⊏ "hello" %% "hel"
+(<<4) ⊏ "hello" %% <'o'
 %USE tvar ⋄ !∘≡¨⟜⊏ ∾ {⥊𝕨 ⊏⎊(•CurrentError∘⊢) _tvar 𝕩}´¨ ⟨⟨0‿1, ⋈0⟩ ⋄ ⟨0‿1, "?"⟩ ⋄ ⟨0‿1, ≍0‿1⟩⟩
 a←↕2 ⋄ ! "e" ≡ (↕10){b←a‿a‿a‿a‿a‿a‿a‿a‿a‿a ⋄ 𝕨⊏⎊"e"𝕩}⟨1‿2,3‿4⟩ ⋄ ! 0‿1 ≡ a
 %USE eqvar ⋄ {1‿¯1 {r←𝕨⊏𝕩 ⋄ ! 𝕩 ≥○•internal.ElType r ⋄ r}_eqvar 𝕩}¨ ⟨↕2, ↕4, "hello", ⟨"ab", "cd", "ef"⟩, ↕⋈4⟩
-!"𝕨⊏𝕩: 𝕩 cannot be a unit" % 0⊏<"a"
-!"𝕨⊏𝕩: 𝕩 cannot be a unit" % 0⊏<5
-!"𝕨⊏𝕩: 𝕩 cannot be an atom" % 0⊏5
-!"𝕨⊏𝕩: 𝕩 cannot be a unit" % ⟨⟩⊏<"a"
-!"𝕨⊏𝕩: 𝕩 cannot be a unit" % ⟨⟩⊏<5
-!"𝕨⊏𝕩: 𝕩 cannot be an atom" % ⟨⟩⊏5
+!"𝕨⊏𝕩: 𝕩 cannot be a unit" % %USE eqerr ⋄ ⟨0, ⟨⟩⟩ ⊏_eqerr ⟨<"a", <5, <{⇐}⟩
+!"𝕨⊏𝕩: 𝕩 cannot be an atom" % %USE eqerr ⋄ ⟨0, ⟨⟩⟩ ⊏_eqerr ⟨5, {⇐}⟩
 !"Expected integer, got 1.5" % ⟨1.5⟩ ⊏ "ab"‿"cd"
 !"𝕨⊏𝕩: Indexing out-of-bounds (10∊𝕨, 2≡≠𝕩)" % ⟨10⟩ ⊏ "ab"‿"cd"
 {𝕩 ! ↕∘≠⊸⊏⊸≡ 20‿𝕩•rand.Range 2}¨ (↕70)∾⥊(64×1‿2‿3‿4‿5)+⌜¯1‿0‿1‿30‿60
@@ -212,7 +219,7 @@ a←↕2 ⋄ ! "e" ≡ (↕10){b←a‿a‿a‿a‿a‿a‿a‿a‿a‿a ⋄ �
 ∾3‿3⥊<1‿0‿3⥊0 %% 3‿0‿3⥊0
 ∾3‿3⥊<0‿0⥊⟨⟩ %% 0‿0⥊⟨⟩
 ⊑1↑⥊∾3‿3⥊<1‿0‿3⥊<"hi" %% "  "
-!"∾: Empty array 𝕩 cannot have an atom fill element" % ∾↕0 %PROPER_FILLS
+!"∾𝕩: Empty array 𝕩 cannot have an atom fill element" % ∾↕0 %PROPER_FILLS
 ∾⟨⟩ %% ⟨⟩
 
 # 𝕨∾𝕩
@@ -271,9 +278,19 @@ a←↕2 ⋄ ! "e" ≡ (↕10){b←a‿a‿a‿a‿a‿a‿a‿a‿a‿a ⋄ �
 !"Expected integer, got NaN" %  %USE eqerr ⋄ ⟨0÷0, ⟨0÷0⟩⟩  ⌽_eqerr ⟨↕10, ↕0, 0‿0⥊0, ⟨⟩⟩
 !"Integer out of range: ∞" %    %USE eqerr ⋄ ⟨∞,   ⟨∞⟩⟩    ⌽_eqerr ⟨↕10, ↕0, 0‿0⥊0, ⟨⟩⟩
 !"Expected integer, got function" %  %USE eqerr ⋄ ⟨⊑  ⟩ ⌽_eqerr ⟨↕10, ↕0, 0‿0⥊0, ⟨⟩⟩
-!"Expected integer, got character" % %USE eqerr ⋄ ⟨'a'⟩ ⌽_eqerr ⟨↕10, ↕0, 0‿0⥊0, ⟨⟩⟩
-!"⌽: 𝕨 contained non-number" % %USE eqerr ⋄ ⟨3‿'a', 'a'‿3, 0‿'a', 'a'‿0⟩ ⌽_eqerr ⟨0‿0⥊0,0‿0‿0⥊0⟩
+!"Expected integer, got character" %  %USE eqerr ⋄ ⟨'a'⟩ ⌽ _eqerr ⟨↕10, ↕0, 0‿0⥊0, ⟨⟩⟩
+!"𝕨⌽⁼𝕩: 𝕨 must consist of integers" % %USE eqerr ⋄ ⟨'a'⟩ ⌽⁼_eqerr ⟨↕10, ↕0, 0‿0⥊0, ⟨⟩⟩
+!"𝕨⌽𝕩: 𝕨 contained non-number" %  %USE eqerr ⋄ ⟨3‿'a', 'a'‿3, 0‿'a', 'a'‿0⟩ ⌽ _eqerr ⟨0‿0⥊0,0‿0‿0⥊0⟩
+!"𝕨⌽⁼𝕩: 𝕨 contained non-number" % %USE eqerr ⋄ ⟨3‿'a', 'a'‿3, 0‿'a', 'a'‿0⟩ ⌽⁼_eqerr ⟨0‿0⥊0,0‿0‿0⥊0⟩
 !"Integer out of range: ∞" % %USE eqerr ⋄ ⟨3‿∞, ∞‿3, 0‿∞, ∞‿0⟩ ⌽_eqerr ⟨0‿0⥊0,0‿0‿0⥊0⟩
+!"𝕨⌽𝕩: 𝕨 must have rank at most 1 (1‿1 ≡ ≢𝕨)" %  %USE eqerr ⋄ ⟨≍⋈1⟩ ⌽ _eqerr ⟨2‿2⥊1, ↕1⟩
+!"𝕨⌽⁼𝕩: 𝕨 must have rank at most 1 (1‿1 ≡ ≢𝕨)" % %USE eqerr ⋄ ⟨≍⋈1⟩ ⌽⁼_eqerr ⟨2‿2⥊1, ↕1⟩
+!"𝕨⌽𝕩: Length of list 𝕨 must be at most rank of 𝕩 (3 ≡ ≠𝕨, ⟨⟩ ≡ ≢𝕩⟩" % 1‿2‿3 ⌽ 1
+!"𝕨⌽⁼𝕩: 𝕩 must have rank at least 1" % 1‿2‿3 ⌽⁼ 1
+!"𝕨⌽𝕩: Length of list 𝕨 must be at most rank of 𝕩 (3 ≡ ≠𝕨, ⟨3⟩ ≡ ≢𝕩⟩" % 1‿2‿3 ⌽ ↕3
+!"𝕨⌽⁼𝕩: 𝕩 must have rank at least 1" % ⟨⟩ ⌽⁼ 1
+(<⁼ ⟨⟩⌽{a⇐1‿2}).a %% 1‿2
+1‿2‿3 ⌽ 4‿4‿4‿4⥊↕256 %% F←{(4|𝕨+↕4)⊏𝕩} ⋄ 3 F⎉2 2 F˘ 1 F 4‿4‿4‿4⥊↕256
 (1+1e15) ⌽ ↕10 %% (1+↕9)∾0
 (-1+1e15) ⌽ ↕10 %% 9∾↕9
 
@@ -449,10 +466,11 @@ a←↕2 ⋄ ! "e" ≡ (↕10){b←a‿a‿a‿a‿a‿a‿a‿a‿a‿a ⋄ �
 !"⍟: 𝔾 contained non-number" % 1⊸+⍟⟨1,∘,3⟩ 0
 !"Expected integer, got 1.5" % 1⊸+⍟1.5 0
 !"Integer out of range: 1e20" % 1⊸+⍟1e20 0
-!"⍟: 𝔾 contained non-integer (or integer was out of range)" % %USE evar ⋄ {1⊸+⍟𝕩 0}_evar ⟨1.5⟩
-!"⍟: 𝔾 contained non-integer (or integer was out of range)" % %USE evar ⋄ {1⊸+⍟𝕩 0}_evar ⟨1e20⟩
-!"⍟: 𝔾 contained non-integer (or integer was out of range)" % %USE evar ⋄ {1⊸+⍟𝕩 0}_evar ⟨9, 1.5⟩
-!"⍟: 𝔾 contained non-integer (or integer was out of range)" % %USE evar ⋄ {1⊸+⍟𝕩 0}_evar ⟨1.5, 9⟩
+!"⍟: 𝔾 contained non-integer or integer was out of range" % %USE evar ⋄ {1⊸+⍟𝕩 0}_evar ⟨1.5⟩
+!"⍟: 𝔾 contained non-integer or integer was out of range" % %USE evar ⋄ {1⊸+⍟𝕩 0}_evar ⟨1e20⟩
+!"⍟: 𝔾 contained non-integer or integer was out of range" % %USE evar ⋄ {1⊸+⍟𝕩 0}_evar ⟨9, 1.5⟩
+!"⍟: 𝔾 contained non-integer or integer was out of range" % %USE evar ⋄ {1⊸+⍟𝕩 0}_evar ⟨1.5, 9⟩
+!"⍟: 𝔾 contained non-integer or integer was out of range" % %USE eqerr ⋄ {1⊸+⍟𝕩‿𝕩 2}_eqerr -⊸∾ ⟨2⋆63, 2⋆60⟩
 
 # ◶
 !"𝔽◶𝕘𝕩: 𝕘 must have rank 1 when index is a number" % 1◶[1‿2,3‿4] 3
@@ -485,6 +503,9 @@ a←↕2 ⋄ ! "e" ≡ (↕10){b←a‿a‿a‿a‿a‿a‿a‿a‿a‿a ⋄ �
 !"𝕨𝔽`𝕩: Shape of 𝕨 must match the cell of 𝕩 (2‿2 ≡ ≢𝕨, 3‿2‿3 ≡ ≢𝕩)" % (2‿2⥊1)+`↕3‿2‿3
 !"𝕨𝔽`𝕩: Shape of 𝕨 must match the cell of 𝕩 (2‿2 ≡ ≢𝕨, 3‿3‿2 ≡ ≢𝕩)" % (2‿2⥊1)+`↕3‿3‿2
 !"𝕨𝔽`𝕩: Shape of 𝕨 must match the cell of 𝕩 (⟨⟩ ≡ ≢𝕨, 3‿3 ≡ ≢𝕩)" % 2+`↕3‿3
+%USE eqvar ⋄ %USE k ⋄ ⟨+,-,×,÷,⋆,√,⌊,⌈,¬,∧,∨,<,>,≠,=,≤,≥,⊣,⊢⟩ {f𝕊arr: ! (  F _k`_k ⥊arr) ≡ ⥊_k         F`  _eqvar arr}⌜ {𝕩∾≍˘¨𝕩} ≍˘¨ ⟨⋈1, 1‿0‿1⟩
+%USE eqvar ⋄ %USE k ⋄ ⟨+,-,×,÷,⋆,√,⌊,⌈,¬,∧,∨,<,>,≠,=,≤,≥,⊣,⊢⟩ {f𝕊arr: ! (1 F _k`_k ⥊arr) ≡ ⥊_k (1¨⊏𝕩)⊸(F`) _eqvar arr}⌜ {𝕩∾≍˘¨𝕩} ≍˘¨ ⟨⋈1, 1‿0‿1⟩
+
 
 # ´
 !"𝔽´𝕩: 𝕩 must be a list (⟨⟩ ≡ ≢𝕩)" % +´0
@@ -499,6 +520,13 @@ a←↕2 ⋄ ! "e" ≡ (↕10){b←a‿a‿a‿a‿a‿a‿a‿a‿a‿a ⋄ �
 # ˝
 !"𝔽˝𝕩: 𝕩 must have rank at least 1" % ⊢˝0
 !"𝔽˝𝕩: Identity not found" % •internal.Keep˝⟨⟩
+(↕4)+˝↕7 %% 21‿22‿23‿24
+(2‿2⥊↕4)+˝7‿2‿2⥊↕28 %% 2‿2⥊84‿92‿100‿108
+(2‿2⥊↕4)+˝2‿2⥊↕28 %% 2‿2⥊2‿3‿6‿7
++˝ ↕10‿4 %% 45 ⋈¨ 10×↕4
+(   ↕4) +˝ ↕10‿4 %% (↕4) + 45 ⋈¨ 10×↕4
+(<¨ ↕4) +˝ ↕10‿4 %% (↕4) + 45 ⋈¨ 10×↕4
+(0‿5⊸+¨↕4) +˝ ↕10‿4 %% ((↕4) + 45) ⋈¨ 5 + 11×↕4
 
 # ⌜
 !"𝕨𝔽⌜𝕩: Result rank too large (200≡=𝕨, 200≡=𝕩)" % +⌜˜(200⥊1)⥊1
