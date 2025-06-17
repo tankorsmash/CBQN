@@ -1,13 +1,16 @@
-# not tested here: •Out •Show •Exit •GetLine •Cmp •CurrentError •FFI •internal.HeapDump
-
 %DEF var V←•internal.Variation ⋄ LV←•internal.ListVariations ⋄ CLR←•internal.ClearRefs
 %DEF tvar %USE var ⋄ _tvar ← {F _𝕣 x: (CLR@) ⊢ {F 𝕩 V x}¨ LV 𝕩; w F _𝕣 x: (CLR@) ⊢ (LV 𝕨) {(𝕨 V w) F 𝕩 V x}⌜ LV 𝕩}
+%DEF eqvar ⟨_eqvar⟩←⊑•args
+%DEF eqvarv ⟨_eqvarv_⟩←⊑•args
+# not tested here: •Out •Show •Exit •GetLine •Cmp •CurrentError •FFI •internal.HeapDump
+
+
 
 # standard system values
 
 # •BQN
-%USE tvar ⋄ !∘≡⟜" "¨ •BQN _tvar "1↑"""""
-⟨⟩ •BQN "Ah"•internal.Variation"1↑""""" %% " "
+%USE eqvar ⋄    •BQN _eqvar "1↑""""" %% " "
+%USE eqvar ⋄ ⟨⟩ •BQN _eqvar "1↑""""" %% " "
 ! ≡´ t←⟨•path,"custom-name", "arg"⟩•BQN"⟨•path‿•name‿•args ⋄ •state⟩" ⋄ ! ⟨•path, "custom-name", "arg"⟩ ≡ ⊑t
 ! ≡´ t←⟨•path,"custom-name"       ⟩•BQN"⟨•path‿•name‿•args ⋄ •state⟩" ⋄ ! ⟨•path, "custom-name", ⟨⟩⟩    ≡ ⊑t
 ! ≡´ t←⟨•path                     ⟩•BQN"⟨•path‿•name‿•args ⋄ •state⟩" ⋄ ! ⟨•path, "",            ⟨⟩⟩    ≡ ⊑t
@@ -15,6 +18,7 @@
 !"•BQN: Path must be a string" % ⟨1‿2⟩ •BQN "2+2"
 !"•BQN: Filename must be a string" % ⟨•path, 1‿2⟩ •BQN "2+2"
 ⟨•path, "abc/def"⟩ •BQN "•name" %% "abc/def"
+!"•BQN: 𝕩 must be a string" % •BQN ↕3
 !"No path present for •path" % •BQN"•path"
 !"No arguments present for •args" % •BQN"•args"
 !"No name present for •name" % •BQN"•name"
@@ -61,6 +65,7 @@ f←•ReBQN{primitives⇐⋈'÷'‿- ⋄ system⇐⟨"foo"‿⋈, "oldbqn"‿�
 !"•ReBQN: No system value ""baz"" to inherit" % •ReBQN{system⇐⟨"foo"‿"bar", "bqn", "baz", "rebqn"⟩}
 !"•ReBQN: No system value ""bqn"" to inherit" % f←•ReBQN{system⇐⟨"baz"‿1, "rebqn", "foo"‿2⟩} ⋄ g←F"•ReBQN" ⋄ G {system⇐⟨"foo"‿"bar", "baz", "bqn", "rebqn"⟩}
 f←•ReBQN{primitives⇐⋈'÷'‿- ⋄ system⇐⟨"primitives", "foo"‿⋈, "bqn", "listsys"⟩} ⋄ F"•primitives‿•listsys" %% ⟨⟨'÷'‿-⟩ ⋄ ⟨"primitives","foo","bqn","listsys"⟩⟩
+f←•ReBQN{system⇐⟨"e1"⋈↕0, "e2"⋈"", "e3"⋈0⥊<"hi"⟩ ⋄ primitives⇐⟨'+',(<"")⊸∾⟩‿⟨'-',(<↕0)⊸∾⟩} ⋄ (⊑1↑⊢)¨ F "+-•e2‿•e1‿•e3" %% ⟨' ', 0, ' ', 0, "  "⟩
 
 # TODO test stacktrace of {𝕏"!0"}•ReBQN{⇐}
 
@@ -69,10 +74,10 @@ f←•ReBQN{primitives⇐⋈'÷'‿- ⋄ system⇐⟨"primitives", "foo"‿⋈,
 !¨ (•Type¨1⊑¨•primitives)∊3‿4‿5
 
 # •state
-6⊸↑⌾(1⊸⊑) •file.Name⌾⊑ •state %% ⟨"testDir","system",⟨"arg0",1⟩⟩
+6⊸↑⌾(1⊸⊑) 1⊸↓⌾(2⊸⊑) •file.Name⌾⊑ •state %% ⟨"testDir","system",⟨"arg0",1⟩⟩
 
 # •args
-•args %% ⟨"arg0",1⟩
+1↓•args %% ⟨"arg0",1⟩
 
 # •path & •file.path
 •file.Name •path %% "testDir"
@@ -202,9 +207,24 @@ v←1 ⋄ ! •BQN∘•Repr⊸≡ ⟨+,1‿2,+¨,(+V)(V+V),2‿2⥊↕4⟩
 64‿1•bit._cast •ParseFloat¨ "123.456000000000000"‿"123.45600000000002" %% "11101110011111011111100101011000111101001011101101111010000000100001111001111101111110010101100011110100101110110111101000000010"-'0'
 ! ∧´'e'=•ParseFloat⎊'e'¨ "-"‿"e2"‿"-e2"‿"."‿".e2"‿"123e"‿"123e-"‿"123e+"
 •ParseFloat "0."∾(n⥊'0')∾"1234e"∾•Repr n←1000000 %% 0.1234
+•ParseFloat 1e6⥊'1' %% ∞
+!"•ParseFloat 𝕩: Input too long" % •ParseFloat 2e6⥊'1'
 •Repr∘•ParseFloat¨ ⟨"1.23516411460311636e-323", "1.23516411460311637e-323"⟩ %% ⟨"1e¯323","1.5e¯323"⟩
 •Repr∘•ParseFloat¨ ⟨"1.235164114603116360e-323", "1.235164114603116361e-323"⟩ %% ⟨"1e¯323","1e¯323"⟩
 •Repr∘•ParseFloat¨ ⟨"1.2351641146031163604e-323", "1.2351641146031163605e-323"⟩ %% ⟨"1e¯323","1e¯323"⟩
+a←1↓@∾↕3 ⋄ •ParseFloat⎊"err" a ⋄ ⟨/⁼ a, ⍷ ⟨1, a, ↕3⟩⟩ %% ⟨3⥊1, 1⋈↕3⟩
+!"•ParseFloat 𝕩: Input was empty" % •ParseFloat ""
+!"•ParseFloat 𝕩: Input was empty" % •ParseFloat ↕0
+!"•ParseFloat 𝕩: Expected a character list argument" % •ParseFloat ↕3
+!"•ParseFloat 𝕩: Input must have rank 1" % •ParseFloat <@
+!"•ParseFloat 𝕩: Input must have rank 1" % •ParseFloat 1‿1⥊'1'
+!"•ParseFloat 𝕩: Expected a character list argument" % •ParseFloat 48‿49
+!"•ParseFloat 𝕩: Expected a character list argument" % •ParseFloat <48
+!"•ParseFloat 𝕩: Malformed input" % •ParseFloat "1e1e1"
+!"•ParseFloat 𝕩: Malformed input" % •ParseFloat ⋈@
+!"•ParseFloat 𝕩: Malformed input" % •ParseFloat ⋈@+254
+!"•ParseFloat 𝕩: Malformed input" % •ParseFloat ⋈@+1111
+!"•ParseFloat 𝕩: Malformed input" % •ParseFloat ⋈@+1114111
 
 # •Fmt
 •Fmt 123 %% "123"
@@ -263,6 +283,8 @@ a←3 ⋄ 12 {𝕊: a+↩𝕩}•_timed 10 ⋄ a %% 123
 E←•internal.EEqual ⋄ a←(¯1⊸×≍⊢) (↕3)∾∞∾0÷0 ⋄ {𝕩!(a 𝕏 0)E a 𝕏 •ParseFloat"-0" ⋄ 𝕩!(0 𝕏 a)E(•ParseFloat"-0") 𝕏 a}¨ (⊢∾{𝕏¨}¨) ⟨+,-,×,÷,⋆,√,⌊,⌈,|,¬,∧,∨,<,>,≠,=,≤,≥, •math.Atan2,•math.Comb,•math.Hypot⟩
 E←•internal.EEqual ⋄ {! (𝕏 4⥊0) E 𝕏 1↓¯1×π∾4⥊0}¨ (⊢∾{𝕏¨}¨) ⟨+,-,×,÷,⋆,√,⌊,⌈,|,¬, •math.Sin,•math.Cos,•math.Tan,•math.Asin,•math.Acos,•math.Atan,•math.Sinh,•math.Cosh,•math.Tanh,•math.Asinh,•math.Acosh,•math.Atanh,•math.Cbrt,•math.Log2,•math.Log10,•math.Log1p,•math.Expm1,•math.Fact,•math.LogFact,•math.Erf,•math.ErfC⟩
 •internal.EEqual´¨ 1⊏˘¨{⟨•math.Atan2⟜2⁼𝕩, •math.Atan2⟜0⁼𝕩, 2⊸•math.Atan2⁼𝕩, 0⊸•math.Atan2⁼𝕩⟩} (¯1⊸×≍⊢) 1.2‿0 %% 1‿1‿1‿1
+(0÷0) •internal.EEqual -0÷0 %% 1
+%USE eqvar ⋄ •internal.EEqual _eqvar⟜- ⟨0÷0, 3⥊0⟩ %% 1
 
 {15 𝕏 10}¨ ⟨•math.GCD,•math.LCM⟩ %% 5‿30
 ⌊1e5×{0.1 𝕏 0.2}¨ ⟨•math.Atan2,•math.Comb,•math.Hypot,•math.Atan2⁼,•math.Atan2˜⁼⟩ %% 110714‿96959‿22360‿2027‿49331
@@ -296,11 +318,10 @@ r←•MakeRand 1 ⋄ ! 1¨⊸≡ ∊{𝕊: 500 r.Deal 1000}¨ ↕4
 # •bit
 !"•bit._cast: 𝕩 must have rank at least 1" % 8‿1 •bit._cast 123
 (↕10) {! (𝕨⥊¯1) ≡ 1‿𝕩•bit._cast (𝕨×𝕩)⥊1}⌜ 8‿16‿32
-%USE var ⋄ {t←𝕩⊏1‿8‿16‿32‿64 ⋄ 1≠⊑t? !∘≡¨⟜⊏ r←{t•bit._cast 𝕩 V a}¨ LV a←  ↕128 ⋄ ⊑⊑r; @}¨ ↕4‿4
-%USE var ⋄ {t←𝕩⊏1‿8‿16‿32‿64 ⋄       !∘≡¨⟜⊏ r←{t•bit._cast 𝕩 V a}¨ LV a←4=↕128 ⋄ ⊑⊑r}¨ ↕4‿4
+%USE eqvar ⋄ {t←𝕩⊏1‿8‿16‿32‿64 ⋄ 1≠⊑t? {t•bit._cast 𝕩}_eqvar   ↕128; @}¨ ↕4‿4
+%USE eqvar ⋄ {t←𝕩⊏1‿8‿16‿32‿64 ⋄       {t•bit._cast 𝕩}_eqvar 4=↕128}¨ ↕4‿4
 ! 10‿1 ≡ ≢8‿16•bit._cast c←0↓2↕'a'+11 •rand.Range 26 ⋄ ! 10‿2 ≡ ≢c
 ! 10‿1 ≡ ≢8‿16•bit._cast c←  2↕'a'+11 •rand.Range 26 ⋄ ! 10‿2 ≡ ≢c
-⊑ 8‿32•bit._cast 3↓↕7 %% 100992003
 !"•bit._cast: incompatible lengths" % 1‿8•bit._cast 1⥊0
 !"•bit._cast: incompatible lengths" % 8‿32•bit._cast 2⥊0
 !"•bit._cast: incompatible lengths" % 8‿32•bit._cast 10⥊0
@@ -319,10 +340,15 @@ r←•MakeRand 1 ⋄ ! 1¨⊸≡ ∊{𝕊: 500 r.Deal 1000}¨ ↕4
 
 !"•bit._cast: unsupported width 16 for type 'f'" % ⟨16‿'f',32⟩•bit._cast 128⥊0
 !"•bit._cast: unsupported width 32 for type 'f'" % ⟨32,32‿'f'⟩•bit._cast 128⥊0
-!"•bit._cast: unsupported width 0 for type 'u'" % ⟨0‿'u',32⟩•bit._cast 128⥊0
-!"•bit._cast: unsupported width 8 for type 'u'" % ⟨8‿'u',32⟩•bit._cast 128⥊0
+!"•bit._cast: unsupported width 0 for type 'u'"  % ⟨0‿'u',32⟩•bit._cast 128⥊0
+!"•bit._cast: unsupported width 8 for type 'u'"  % ⟨8‿'u',32⟩•bit._cast 128⥊0
 !"•bit._cast: unsupported width 32 for type 'u'" % ⟨8,32‿'u'⟩•bit._cast 128⥊0
-!"•bit._cast: unsupported width 1 for type 'i'" % ⟨8, 1‿'i'⟩•bit._cast 128⥊0
+!"•bit._cast: unsupported width 1 for type 'i'"  % ⟨8, 1‿'i'⟩•bit._cast 128⥊0
+
+%USE eqvar ⋄ {𝕊 f: {•internal.Keep 𝕩⍋1  ⋄ •internal.Validate F 𝕩}_eqvar  ↕64}¨ ({𝕩•bit._neg}¨ 8‿16‿32‿64) ∾ {𝕩 •bit._cast}¨ ≠´¨⊸/ ⥊ 8‿16‿32‿64 ⋈⌜ 1‿8‿16‿32‿64
+%USE eqvar ⋄ {𝕊 f: {•internal.Keep 𝕩⍒1  ⋄ •internal.Validate F 𝕩}_eqvar ⌽↕64}¨ ({𝕩•bit._neg}¨ 8‿16‿32‿64) ∾ {𝕩 •bit._cast}¨ ≠´¨⊸/ ⥊ 8‿16‿32‿64 ⋈⌜ 1‿8‿16‿32‿64
+%USE eqvar ⋄ {𝕊 f: {•internal.Squeeze 𝕩 ⋄ •internal.Validate F 𝕩}_eqvar 64↑2}¨ ({𝕩•bit._neg}¨ 8‿16‿32‿64) ∾ {𝕩 •bit._cast}¨ ≠´¨⊸/ ⥊ ⟨8⟩ ⋈⌜ 1‿8‿16‿32‿64
+%USE eqvar ⋄ {𝕊 w: {⟨𝕩, w•bit._not 8↓𝕩⟩}_eqvar ↕16}¨ 8‿16‿32‿64
 
 # •platform
 Str ← {!=𝕩 ⋄ !×≠𝕩 ⋄ ! ∧´2=•Type¨𝕩} ⋄ Str •platform.os ⋄ Str •platform.cpu.arch ⋄ Str •platform.bqn.impl_version ⋄ Str •platform.environment
@@ -346,9 +372,9 @@ Str ← {!=𝕩 ⋄ !×≠𝕩 ⋄ ! ∧´2=•Type¨𝕩} ⋄ Str •platform.o
 @-˜•ToUTF8 "𝕩⍉hello" %% 240‿157‿149‿169‿226‿141‿137‿104‿101‿108‿108‿111
 ! •FromUTF8∘•ToUTF8⊸≡ "𝕩⍉hello"
 (
-  %USE tvar
+  %USE eqvar
   ip←⋈¨ i←@+⍷0⌈∧(⥊(¯5+↕11)+⌜2⋆↕20)∾1114111-↕10
-  {! 𝕩≡•FromUTF8•ToUTF8 𝕩 ⋄ !∘≡¨⟜⊏ •ToUTF8 _tvar 𝕩}¨ ↑i
+  {! 𝕩≡•FromUTF8•ToUTF8 𝕩 ⋄ •ToUTF8 _eqvar 𝕩}¨ ↑i
   t ← •ToUTF8¨ ip
   ! (∾t)≡•ToUTF8 i
   ! ip ≡ •FromUTF8¨ t
@@ -366,6 +392,10 @@ Str ← {!=𝕩 ⋄ !×≠𝕩 ⋄ ! ∧´2=•Type¨𝕩} ⋄ Str •platform.o
   ! 0‿1‿2‿3‿4‿5‿6‿7‿8‿8‿1‿2‿3‿4‿5‿6‿7‿8‿8 ≡ {•internal.ElType 𝕩 •internal.Variation ⟨⟩}¨ var
   # TODO test •internal.ListVariations
 )
+%USE eqvarv ⋄ •internal.ListVariations _eqvarv_"i" π×↕10 %% ⟨"Af64","Sf64","Af64Inc","Sf64Inc","Ah","Sh","AhInc","ShInc","Af","Sf","AfInc","SfInc"⟩
+%USE eqvarv ⋄ •internal.ListVariations _eqvarv_"i" (π×↕10)∾{⇐} %% ⟨"Ah","Sh","AhInc","ShInc","Af","Sf","AfInc","SfInc"⟩
+%USE eqvarv ⋄ •internal.ListVariations _eqvarv_"i" ↕1000 %% ⟨"Ai16","Si16","Ai16Inc","Si16Inc","Ai32","Si32","Ai32Inc","Si32Inc","Af64","Sf64","Af64Inc","Sf64Inc","Ah","Sh","AhInc","ShInc","Af","Sf","AfInc","SfInc"⟩
+%USE eqvarv ⋄ •internal.ListVariations _eqvarv_"i" 100⥊1‿0 %% ⟨"Ab","AbInc","Ai8","Si8","Ai8Inc","Si8Inc","Ai16","Si16","Ai16Inc","Si16Inc","Ai32","Si32","Ai32Inc","Si32Inc","Af64","Sf64","Af64Inc","Sf64Inc","Ah","Sh","AhInc","ShInc","Af","Sf","AfInc","SfInc"⟩
 
 # •internal.Keep
 •internal.Keep ↕10 %% ↕10
@@ -374,16 +404,28 @@ Str ← {!=𝕩 ⋄ !×≠𝕩 ⋄ ! ∧´2=•Type¨𝕩} ⋄ Str •platform.o
 •internal.Refc •internal.Unshare ↕10 %% 1
 a←•internal.Unshare ↕10 ⋄ b←10⥊<a ⋄ ! 11 ≡ •internal.Refc a ⋄ •internal.Keep b
 # •internal.IsPure
-! 1 ≡ •internal.IsPure ⊑⟨+⟩
+•internal.IsPure¨ ⟨@,1,⊢,¨,∘,{⇐},1‿2,{𝕩}‿{𝔽}‿{𝔽𝔾𝕩}⟩ %% 8⥊1
 ! 1 ≡ •internal.IsPure ⊑⟨⊑∘+¨++⟩
 ! 1 ≡ •internal.IsPure ⊑⟨⊑⟜1‿2‿3∘+¨++⟩
 ! 1 ≡ •internal.IsPure ⊑⟨⊢◶⊢‿-⟩
 ! 0 ≡ •internal.IsPure ⊑⟨⊢◶{𝕩}‿-⟩
-! 0 ≡ •internal.IsPure ⊑⟨⊑⟜1‿2‿{𝕩}∘+¨++⟩ # could be 1
+! 1 ≡ •internal.IsPure ⊑⟨⊑⟜1‿2‿{𝕩}∘+¨++⟩
 ! 0 ≡ •internal.IsPure •show
 ! 0 ≡ •internal.IsPure •file.chars
 ! 0 ≡ •internal.IsPure •internal.keep
 ! 1 ≡ •internal.IsPure •internal.pureKeep
+
+! 0 ≡ •internal.IsPure ⊑⟨{𝕩}⊢⟩
+! 0 ≡ •internal.IsPure ⊑⟨⊢{𝕩}⟩
+! 0 ≡ •internal.IsPure ⊑⟨{𝕩}⊢⊢⟩
+! 0 ≡ •internal.IsPure ⊑⟨⊢{𝕩}⊢⟩
+! 0 ≡ •internal.IsPure ⊑⟨⊢⊢{𝕩}⟩
+! 0 ≡ •internal.IsPure ⊑⟨{𝕩}¨⟩
+! 0 ≡ •internal.IsPure ⊑⟨⊢{𝔽𝕩}⟩
+! 0 ≡ •internal.IsPure ⊑⟨{𝕩}∘⊢⟩
+! 0 ≡ •internal.IsPure ⊑⟨⊢{𝔽𝔾𝕩}⊢⟩
+! 0 ≡ •internal.IsPure ⊑⟨⊢∘{𝕩}⟩
+
 # •internal.Info
 •internal.Info 1 %% "3ff0000000000000: not heap-allocated"
 33↑•internal.Info •internal.Unshare ↕10 %% "fff7: refc:1 type:23=i8arr alloc:"
@@ -391,11 +433,16 @@ a←•internal.Unshare ↕10 ⋄ b←10⥊<a ⋄ ! 11 ≡ •internal.Refc a �
 •internal.HasFill¨ ⟨↕0, ↕10, ⟨⟩, 'a'‿1, ""⟩ %% 1‿1‿0‿0‿1
 # •internal.Squeeze
 a←"Ai32"•internal.Variation ↕10 ⋄ •internal.Type •internal.Squeeze a %% "i8arr"
+{! 𝕩 ≡ •internal.Squeeze 𝕩}¨ {0≥•Cmp´0‿¯1⊏𝕩? 𝕩⍋@; 𝕩⍒@}⊸⊢¨ ∾{∨´1e9≤|0‿¯1⊏𝕩? ⟨𝕩⟩; ⟨𝕩,"Ai32"•internal.Variation 𝕩⟩}¨ 1‿1000⊸/¨ ∾{⟨0‿𝕩,𝕩‿0⟩}¨ 1‿2‿¯1 ∾ ¯1⊸-⊸∾ ⥊ 0‿¯1 +⌜ 2⋆7‿15‿31
 # •internal.DeepSqueeze
 a←⋈"Ai32"•internal.Variation ↕10 ⋄ •internal.Type ⊑•internal.DeepSqueeze a %% "i8arr"
 # •internal.ClearRefs
 •internal.ClearRefs@ ⋄ •internal.Variation⟜(↕10)¨ 10⥊<"Ai32Inc" ⋄ •internal.ClearRefs "foo" %% 10
 # •internal.Unshare
 •internal.Refc∘•internal.Unshare¨ ⟨↕0, "", ⟨⟩, ↕10⟩ %% 1‿1‿1‿1
+⟨a⟩‿b‿c ← •internal.Unshare ⟨{a⇐↕2},"hi",3⟩ ⋄ a‿b‿c %% ⟨0‿1, "hi", 3⟩
 # •internal.EEqual
 %USE nan ⋄ a←1⌽nans∾•ParseFloat¨"0"‿"1.2"‿"-0" ⋄ a •internal.EEqual ⌽a %% 1
+# •internal.Validate
+! •internal.Validate⊸≡ ↕10
+! •internal.Validate⊸≡ ∨↕1000

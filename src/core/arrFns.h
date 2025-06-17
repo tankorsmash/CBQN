@@ -10,24 +10,19 @@
 static B* arrv_bptrG(Arr* xa) {          ARRV_BPTR_BODY; UD; }
 static B* arr_bptrG(B x) { Arr* xa=a(x); ARRV_BPTR_BODY; UD; }
 
-#if ARR_BPTR_NEVER
-  static B* arr_bptr(B x) { return NULL; }
-  static B* arrv_bptr(Arr* x) { return NULL; }
-#else
-  static B* arr_bptr(B x) { Arr* xa=a(x); ARRV_BPTR_BODY; return NULL; }
-  static B* arrv_bptr(Arr* xa) {          ARRV_BPTR_BODY; return NULL; }
-#endif
+static B* arr_bptr(B x) { Arr* xa=a(x); if (HEURISTIC(true)) { ARRV_BPTR_BODY; } return NULL; }
+static B* arrv_bptr(Arr* xa) {          if (HEURISTIC(true)) { ARRV_BPTR_BODY; } return NULL; }
 
 static void* tyarrv_ptr(TyArr* x) {
-  assert(IS_ANY_ARR(PTY(x)) && !IS_SLICE(PTY(x)));
+  assert(IS_ANY_ARR(PTY(x)) && !IS_TYSLICE(PTY(x)));
   return x->a;
 }
 static void* tyanyv_ptr(Arr* x) {
   assert(IS_ANY_ARR(PTY(x)));
-  return IS_SLICE(PTY(x))? ((TySlice*)x)->a : ((TyArr*)x)->a;
+  return ARR_IS_SLICE(PTY(x))? ((TySlice*)x)->a : ((TyArr*)x)->a;
 }
 static void* tyslicev_ptr(Arr* x) {
-  assert(IS_SLICE(PTY(x)));
+  assert(IS_TYSLICE(PTY(x)));
   return ((TySlice*)x)->a;
 }
 
@@ -77,13 +72,13 @@ extern u8 const arrTypeBitsLog[];
 #define arrNewType(X) el2t(TIi(X,elType))
 
 SHOULD_INLINE void arr_check_size(u64 sz, u8 type, u64 ia) {
-  #if DEBUG
+  if (DEBUG) {
     assert(IS_ANY_ARR(type) || type==t_harrPartial);
-    if (!IS_SLICE(type)) {
+    if (!ARR_IS_SLICE(type)) {
       if (type==t_harr || type==t_harrPartial) assert(sz >= fsizeof(HArr,a,B,ia));
       else assert(sz >= offsetof(TyArr,a) + (((ia<<arrTypeBitsLog(type))+7)>>3));
     }
-  #endif
+  }
 }
 // Log of width in bits: max of 7, and also return 7 if not power of 2
 SHOULD_INLINE u8 multWidthLog(usz n, u8 lw) { // Of n elements, 1<<lw bit
@@ -100,7 +95,7 @@ SHOULD_INLINE u8 kCellWidthLog(B x, ur k) {
 SHOULD_INLINE u8 cellWidthLog(B x) { return kCellWidthLog(x, 1); }
 
 static Arr* m_tyslice(void* data, Arr* parent, u8 type, ux ia) {
-  assert(IS_ANY_ARR(type) && IS_SLICE(type));
+  assert(IS_ANY_ARR(type) && ARR_IS_SLICE(type));
   Arr* a = m_arr(sizeof(TySlice), type, ia);
   ((TySlice*) a)->p = parent;
   ((TySlice*) a)->a = data;

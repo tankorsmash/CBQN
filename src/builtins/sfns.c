@@ -101,12 +101,11 @@ static Arr* take_head(usz ria, B x) { // consumes; returns ria↑x with unset sh
     
     try_copy:;
     // if (used > 64) goto base;
-    MAKE_MUT_INIT(rm, ria, TI(x,elType)); MUTG_INIT(rm);
-    mut_copyG(rm, 0, x, 0, ria);
-    Arr* r = mut_fp(rm);
-    if (xt==t_fillarr) r = a(withFill(taga(arr_shVec(r)), getFillR(x)));
+    UntaggedArr r = m_arrp_copyFill(x, ria);
+    COPY_TO(r.data, TI(x,elType), 0, x, 0, ria);
+    NOGC_E;
     decG(x);
-    return r;
+    return r.obj;
   }
   base:;
   return TI(x,slice)(x,0,ria);
@@ -198,154 +197,199 @@ B shape_c1(B t, B x) {
   return taga(arr_shVec(TI(x,slice)(x, 0, ia)));
 }
 
-B shape_c2(B t, B w, B x) {
-  usz xia = isArr(x)? IA(x) : 1;
-  usz nia = 1;
-  ur nr;
-  ShArr* sh;
-  if (isF64(w)) {
-    nia = o2s(w);
-    nr = 1;
-    sh = NULL;
+static void shape_c2_prim0(B c) {
+  if (RARE(!isPrim(c))) {
+    if (isF64(c)) thrF("𝕨⥊𝕩: 𝕨 must consist of natural numbers or ∘ ⌊ ⌽ ↑ (contained %B)", c);
+    else          thrF("𝕨⥊𝕩: 𝕨 must consist of natural numbers or ∘ ⌊ ⌽ ↑ (contained %S)", genericDesc(c));
+  }
+}
+#define SHAPE_C2_PRIM1(ID, GET) if (ID!=n_atop & ID!=n_floor & ID!=n_reverse & ID!=n_take) thrF("𝕨⥊𝕩: 𝕨 must consist of natural numbers or ∘ ⌊ ⌽ ↑ (contained %B)", GET)
+
+Arr* reshape_cycle(usz nia, usz xia, B x);
+SHOULD_INLINE Arr* reshape_unshaped(usz nia, B x) {
+  if (isArr(x)) {
+    usz xia = IA(x);
+    if (nia <= xia) return take_head(nia, x);
+    else return reshape_cycle(nia, xia, x);
   } else {
-    if (RARE(isAtm(w))) w = m_unit(w);
-    if (RNK(w)>1) thrM("𝕨⥊𝕩: 𝕨 must have rank at most 1");
-    if (IA(w)>UR_MAX) thrM("𝕨⥊𝕩: Result rank too large");
-    nr = IA(w);
-    sh = nr<=1? NULL : m_shArr(nr);
-    SGetU(w)
-    i32 unkPos = -1;
-    i32 unkInd ONLY_GCC(=0);
-    bool bad=false, good=false;
-    for (i32 i = 0; i < nr; i++) {
-      B c = GetU(w, i);
-      if (isF64(c)) {
-        usz v = o2s(c);
-        if (sh) sh->a[i] = v;
-        bad|= mulOn(nia, v);
-        good|= v==0;
+    return reshape_one(nia, x);
+  }
+}
+
+B shape_c2_01(usz wia, B w, B x) {
+  switch (wia) { default: UD;
+    case 0: // ⟨⟩⥊x
+      decG(w);
+      if (isAtm(x)) return m_unit(x);
+      if (RARE(IA(x) == 0)) thrM("𝕨⥊𝕩: Empty 𝕩 and non-empty result");
+      return taga(arr_rnk01(take_impl(1, x), 0));
+    
+    case 1: // ⟨x⟩⥊1
+      w = TO_GET(w,0);
+      // fallthrough
+      if (q_usz(w)) {
+        return taga(arr_shVec(reshape_unshaped(o2sG(w), x)));
+      }
+    case 2: // atom
+      shape_c2_prim0(w);
+      u8 id = RTID(w);
+      SHAPE_C2_PRIM1(id, w);
+      decG(w);
+      return C1(shape, x);
+  }
+}
+
+B shape_c2_listw(B t, B w, B x);
+B shape_c2(B t, B w, B x) {
+  if (q_usz(w)) {
+    return taga(arr_shVec(reshape_unshaped(o2sG(w), x)));
+  } else {
+    return shape_c2_listw(t, w, x);
+  }
+}
+NOINLINE B shape_c2_listw(B t, B w, B x) {
+  if (RARE(isAtm(w))) return shape_c2_01(2, w, x);
+  if (RNK(w) > 1) thrF("𝕨⥊𝕩: 𝕨 must be a list or unit (%i ≡ =𝕩)", RNK(w));
+  usz wia = IA(w);
+  if (wia <= 1) return shape_c2_01(wia, w, x);
+  if (wia > UR_MAX) thrF("𝕨⥊𝕩: Result rank too large (%i ≡ ≠𝕨)", wia);
+  
+  usz nia = 1;
+  ur nr = wia;
+  ShArr* sh = m_shArr(nr);
+  
+  SGetU(w)
+  i32 unkPos = -1;
+  i32 unkID ONLY_GCC(=0);
+  usz xia ONLY_GCC(=0);
+  bool bad=false, good=false;
+  for (i32 i = 0; i < nr; i++) {
+    B c = GetU(w, i);
+    if (q_usz(c)) {
+      usz v = o2sG(c);
+      sh->a[i] = v;
+      if (RARE(mulOn(nia, v))) bad = true;
+      good|= v==0;
+    } else {
+      shape_c2_prim0(c);
+      if (unkPos!=-1) thrM("𝕨⥊𝕩: 𝕨 contained multiple computed axes");
+      unkPos = i;
+      unkID = RTID(c);
+      xia = isArr(x)? IA(x) : 1;
+      good|= xia==0 | unkID==n_floor;
+    }
+  }
+  if (bad && !good) thrM("𝕨⥊𝕩: 𝕨 too large");
+  
+  if (unkPos!=-1) {
+    SHAPE_C2_PRIM1(unkID, GetU(w,unkPos));
+    if (nia==0) thrM("𝕨⥊𝕩: Can't compute axis when the rest of the shape is empty");
+    usz div = xia/nia;
+    usz mod = xia%nia;
+    usz item;
+    bool fill = false;
+    if (unkID == n_atop) {
+      if (mod!=0) thrF("𝕨⥊𝕩: Shape must be exact when reshaping with ∘ (%H ≡ ≢𝕩, %s is the product of non-computed axis)", x, nia);
+      item = div;
+    } else if (unkID == n_floor) {
+      item = div;
+    } else if (unkID == n_reverse) {
+      item = mod? div+1 : div;
+    } else if (unkID == n_take) {
+      item = mod? div+1 : div;
+      fill = true;
+    } else UD;
+    sh->a[unkPos] = item;
+    nia = uszMul(nia, item);
+    if (fill) {
+      if (!isArr(x)) x = m_unit(x);
+      x = taga(arr_shVec(take_impl(nia, x)));
+      decG(w);
+      return truncReshape(x, nia, nia, nr, sh); // could be improved
+    }
+  }
+  decG(w);
+  return taga(arr_shSetUO(reshape_unshaped(nia, x), nr, sh));
+}
+
+Arr* reshape_cycle(usz nia, usz xia, B x) { // used directly by tbl_c2
+  assert(nia > xia);
+  Arr* r;
+  if (xia <= 1) {
+    if (RARE(xia == 0)) thrM("𝕨⥊𝕩: Empty 𝕩 and non-empty result");
+    x = TO_GET(x, 0);
+    return reshape_one(nia, x);
+  }
+  if (xia <= nia/2) x = squeeze_any(x);
+  
+  u8 xl = arrTypeBitsLog(TY(x));
+  u8 xt = arrNewType(TY(x));
+  u8* rp;
+  u64 bi, bf; // Bytes present, bytes wanted
+  if (xl == 0) { // Bits
+    u64* rq; r = m_bitarrp(&rq, nia);
+    rp = (u8*)rq;
+    usz nw = BIT_N(nia);
+    u64* xp = bitany_ptr(x);
+    u64 b = xia;
+    if (b % 8) {
+      if (b < 64) {
+        // Need to avoid calling bit_cpy with arguments <64 bits apart
+        u64 v = xp[0] & (~(u64)0 >> (64-b));
+        do { v |= v<<b; b*=2; } while (b%8 && b<64);
+        rq[0] = v;
+        if (b>64 && nia>64) rq[1] = v>>(64-b/2);
       } else {
-        if (isArr(c) || !isVal(c)) thrM("𝕨⥊𝕩: 𝕨 must consist of natural numbers or ∘ ⌊ ⌽ ↑");
-        if (unkPos!=-1) thrM("𝕨⥊𝕩: 𝕨 contained multiple computed axes");
-        unkPos = i;
-        if (!isPrim(c)) thrM("𝕨⥊𝕩: 𝕨 must consist of natural numbers or ∘ ⌊ ⌽ ↑");
-        unkInd = RTID(c);
-        good|= xia==0 | unkInd==n_floor;
+        memcpy(rq, xp, (b+7)/8);
       }
-    }
-    if (bad && !good) thrM("𝕨⥊𝕩: 𝕨 too large");
-    if (unkPos!=-1) {
-      if (unkInd!=n_atop & unkInd!=n_floor & unkInd!=n_reverse & unkInd!=n_take) thrM("𝕨⥊𝕩: 𝕨 must consist of natural numbers or ∘ ⌊ ⌽ ↑");
-      if (nia==0) thrM("𝕨⥊𝕩: Can't compute axis when the rest of the shape is empty");
-      i64 div = xia/nia;
-      i64 mod = xia%nia;
-      usz item;
-      bool fill = false;
-      if (unkInd == n_atop) {
-        if (mod!=0) thrM("𝕨⥊𝕩: Shape must be exact when reshaping with ∘");
-        item = div;
-      } else if (unkInd == n_floor) {
-        item = div;
-      } else if (unkInd == n_reverse) {
-        item = mod? div+1 : div;
-      } else if (unkInd == n_take) {
-        item = mod? div+1 : div;
-        fill = true;
-      } else UD;
-      if (sh) sh->a[unkPos] = item;
-      nia = uszMul(nia, item);
-      if (fill) {
-        if (!isArr(x)) x = m_unit(x);
-        x = taga(arr_shVec(take_impl(nia, x)));
-        xia = nia;
+      for (; b%8; b*=2) {
+        if (b>nw*32) {
+          if (b<nia) bit_cpyN(rq, b, rq, 0, nia-b);
+          b = 64*nw; // Ensure bi>=bf since bf is rounded up
+          break;
+        }
+        bit_cpyN(rq, b, rq, 0, b);
       }
+    } else {
+      memcpy(rp, xp, b/8);
     }
-    decG(w);
+    bi = b/8;
+    bf = 8*nw;
+    if (bi == 1) { memset(rp, rp[0], bf); bi=bf; }
+  } else {
+    if (TI(x,elType) == el_B) {
+      UntaggedArr r = m_barrp_copyFill(x, nia);
+      i64 div = nia/xia;
+      i64 mod = nia%xia;
+      for (i64 i = 0; i < div; i++) COPY_TO(r.data, el_B, i*xia, x, 0, xia);
+      COPY_TO(r.data, el_B, div*xia, x, 0, mod);
+      NOGC_E;
+      decG(x);
+      return r.obj;
+    }
+    u8 xk = xl - 3;
+    if (nia >= USZ_MAX) thrOOM();
+    rp = m_tyarrp(&r, 1<<xk, nia, xt);
+    bi = (u64)xia<<xk;
+    bf = (u64)nia<<xk;
+    memcpy(rp, tyany_ptr(x), bi);
   }
   
-  Arr* r;
-  if (isArr(x)) {
-    if (nia <= xia) {
-      return truncReshape(x, xia, nia, nr, sh);
-    } else {
-      if (xia <= 1) {
-        if (RARE(xia == 0)) thrM("𝕨⥊𝕩: Empty 𝕩 and non-empty result");
-        x = TO_GET(x, 0);
-        goto unit;
-      }
-      if (xia <= nia/2) x = any_squeeze(x);
-      
-      u8 xl = arrTypeBitsLog(TY(x));
-      u8 xt = arrNewType(TY(x));
-      u8* rp;
-      u64 bi, bf; // Bytes present, bytes wanted
-      if (xl == 0) { // Bits
-        u64* rq; r = m_bitarrp(&rq, nia);
-        rp = (u8*)rq;
-        usz nw = BIT_N(nia);
-        u64* xp = bitany_ptr(x);
-        u64 b = xia;
-        if (b % 8) {
-          if (b < 64) {
-            // Need to avoid calling bit_cpy with arguments <64 bits apart
-            u64 v = xp[0] & (~(u64)0 >> (64-b));
-            do { v |= v<<b; b*=2; } while (b%8 && b<64);
-            rq[0] = v;
-            if (b>64 && nia>64) rq[1] = v>>(64-b/2);
-          } else {
-            memcpy(rq, xp, (b+7)/8);
-          }
-          for (; b%8; b*=2) {
-            if (b>nw*32) {
-              if (b<nia) bit_cpyN(rq, b, rq, 0, nia-b);
-              b = 64*nw; // Ensure bi>=bf since bf is rounded up
-              break;
-            }
-            bit_cpyN(rq, b, rq, 0, b);
-          }
-        } else {
-          memcpy(rp, xp, b/8);
-        }
-        bi = b/8;
-        bf = 8*nw;
-        if (bi == 1) { memset(rp, rp[0], bf); bi=bf; }
-      } else {
-        if (TI(x,elType) == el_B) {
-          MAKE_MUT_INIT(m, nia, el_B); MUTG_INIT(m);
-          i64 div = nia/xia;
-          i64 mod = nia%xia;
-          for (i64 i = 0; i < div; i++) mut_copyG(m, i*xia, x, 0, xia);
-          mut_copyG(m, div*xia, x, 0, mod);
-          B xf = getFillR(x);
-          decG(x);
-          return withFill(taga(arr_shSetUO(mut_fp(m), nr, sh)), xf);
-        }
-        u8 xk = xl - 3;
-        rp = m_tyarrp(&r, 1<<xk, nia, xt);
-        bi = (u64)xia<<xk;
-        bf = (u64)nia<<xk;
-        memcpy(rp, tyany_ptr(x), bi);
-      }
-      decG(x);
-      if (bi<=8 && !(bi & (bi-1))) {
-        // Divisor of 8: write words
-        usz b = bi*8;
-        u64 v = *(u64*)rp & (~(u64)0 >> (64-b));
-        while (b<64) { v |= v<<b; b*=2; }
-        fill_words(rp, v, bf);
-      } else {
-        // Double up to length l, then copy in blocks
-        u64 l = 1<<15; if (l>bf) l=bf;
-        for (; bi<=l/2; bi+=bi) memcpy(rp+bi, rp, bi);
-        u64 e=bi; for (; e+bi<=bf; e+=bi) memcpy(rp+e, rp, bi);
-        if (e<bf) memcpy(rp+e, rp, bf-e);
-      }
-    }
+  decG(x);
+  if (bi<=8 && !(bi & (bi-1))) {
+    // Divisor of 8: write words
+    usz b = bi*8;
+    u64 v = *(u64*)rp & (~(u64)0 >> (64-b));
+    while (b<64) { v |= v<<b; b*=2; }
+    fill_words(rp, v, bf);
   } else {
-    unit:;
-    r = reshape_one(nia, x);
+    // Double up to length l, then copy in blocks
+    u64 l = 1<<15; if (l>bf) l=bf;
+    for (; bi<=l/2; bi+=bi) memcpy(rp+bi, rp, bi);
+    u64 e=bi; for (; e+bi<=bf; e+=bi) memcpy(rp+e, rp, bi);
+    if (e<bf) memcpy(rp+e, rp, bf-e);
   }
-  return taga(arr_shSetUO(r,nr,sh));
+  return r;
 }
 
 B pick_c1(B t, B x) {
@@ -370,10 +414,10 @@ static NOINLINE void checkIndexList(B w, ur xr) {
 }
 
 // calculate index into variable RES; reads xsh, defines i for GET
-#define PICK_IDX(RES, GET, RNK, OOB)         \
-  usz RES = 0;                               \
-  for (usz i=0, rnk_=(RNK); i < rnk_; i++) { \
-    c = c*xsh[i] + WRAP(GET, xsh[i], OOB);   \
+#define PICK_IDX(RES, GET, RNK, OOB)        \
+  usz RES = 0;                              \
+  for (ux i=0, rnk_=(RNK); i < rnk_; i++) { \
+    c = c*xsh[i] + WRAP(GET, xsh[i], OOB);  \
   }
 
 static i64 pick_convFloat(f64 f) {
@@ -414,7 +458,7 @@ static B recPick(B w, B x) { // doesn't consume
           if (isAtm(c)) thrM("𝕨⊑𝕩: 𝕨 contained list with mixed-type elements");
           HARR_ADD(r, i, recPick(c, x));
         }
-        return any_squeeze(HARR_FC(r, w));
+        return squeeze_any(HARR_FC(r, w));
       }
     }
   }
@@ -605,7 +649,7 @@ NOINLINE B takedrop_highrank(bool take, B w, B x) {
             if (ri!=pri) mut_fillG(rm, pri, xf, ri-pri);
             pri = ri+cellWrite;
           }
-          mut_copyG(rm, ri, x, xi, cellWrite);
+          mut_copyG(rm, ri, x, xi, cellWrite); // TODO could use cf_
           usz cr = cellStart-1;
           if (0 == --lcv[cr]) {
             do {
@@ -844,7 +888,7 @@ B join_c1(B t, B x) {
       for (usz i=0; i<n; i++) {
         ur rd = r1 - ll[i];
         if (rd) {
-          if (rd>1) thrF("∾𝕩: Item ranks along an axis can differ by at most one (contained ranks %i and %i along axis %i)", ll[i], r1, a);
+          if (rd>1) thrF("∾𝕩: Item ranks along an axis can differ by at most one (contained ranks %s and %i along axis %i)", ll[i], r1, a);
           ll[i] = -1;
         } else {
           B c = GetU(x, i*step);
@@ -1118,13 +1162,6 @@ B shifta_c2(B t, B w, B x) {
   return qWithFill(mut_fcd(r, x), f);
 }
 
-static u64 bit_reverse(u64 x) {
-  u64 c = __builtin_bswap64(x);
-  c = (c&0x0f0f0f0f0f0f0f0f)<<4 | (c&0xf0f0f0f0f0f0f0f0)>>4;
-  c = (c&0x3333333333333333)<<2 | (c&0xcccccccccccccccc)>>2;
-  c = (c&0x5555555555555555)<<1 | (c&0xaaaaaaaaaaaaaaaa)>>1;
-  return c;
-}
 B reverse_c1(B t, B x) {
   if (isAtm(x) || RNK(x)==0) thrM("⌽𝕩: 𝕩 cannot be a unit");
   usz n = *SH(x);
@@ -1138,7 +1175,7 @@ B reverse_c1(B t, B x) {
       case 0: {
         u64* rp; r = m_bitarrc(&rp, x);
         u64* xp=xv; usz g = BIT_N(n); usz e = g-1;
-        vfor (usz i = 0; i < g; i++) rp[i] = bit_reverse(xp[e-i]);
+        vfor (usz i = 0; i < g; i++) rp[i] = bit_reverse64(xp[e-i]);
         if (n&63) {
           u64 sh=(-n)&63;
           vfor (usz i=0; i<e; i++) rp[i]=rp[i]>>sh|rp[i+1]<<(64-sh);
@@ -1205,11 +1242,12 @@ NOINLINE B rotate_highrank(bool inv, B w, B x) {
   if (wia>xr) goto badlen;
   
   if (wia==0) { r=x; goto decW_ret; }
-  if (!elNum(TI(w,elType))) {
-    w = num_squeeze(w);
-    if (!elNum(TI(w,elType))) thrF("𝕨⌽%U𝕩: 𝕨 contained non-number", INV);
+  u8 we = TI(w,elType);
+  if (!elNum(we)) {
+    w = squeeze_numTry(w, &we, SQ_NUM);
+    if (!elNum(we)) thrF("𝕨⌽%U𝕩: 𝕨 contained non-number", INV);
   }
-  bool origF64 = TI(w,elType)==el_f64;
+  bool origF64 = we==el_f64;
   w = toF64Any(w);
   f64* wp = tyany_ptr(w);
   if (origF64) for (ux i = 0; i < wia; i++) o2i64(m_f64(wp[i]));
@@ -1298,7 +1336,7 @@ B reverse_c2(B t, B w, B x) {
 }
 
 
-static usz pick_oneIndex(B w, usz xr, usz* xsh) { // throws if guaranteed bad; returns USZ_MAX if not a plain index
+static usz pick_oneIndex(B w, ur xr, usz* xsh) { // throws if guaranteed bad; returns USZ_MAX if not a plain index
   assert(xr!=0);
   if (RARE(isAtm(w) || IA(w)!=xr || RNK(w)!=1)) return USZ_MAX;
   switch(TI(w,elType)) { default: UD;
@@ -1398,9 +1436,10 @@ B pick_ucw(B t, B o, B w, B x) {
         if (RARE(c==USZ_MAX)) { mut_pfree(r, i); goto def; }
         mut_setG(r, i, m_usz(c));
       }
-      w = num_squeeze(mut_fcd(r, w));
+      w = squeeze_numNew(mut_fcd(r, w));
       B rep = isArr(o)? incG(o) : c1(o, C2(select, incG(w), C1(shape, incG(x))));
-      if (isAtm(rep) || !eqShape(w, rep)) thrF("𝔽⌾(a⊸⊑)𝕩: 𝔽 must return an array with the same shape as its input (expected %H, got %H)", w, rep);
+      // error messages will need to get more non-trivial for deeper mismatches
+      if (isAtm(rep) || !eqShape(w, rep)) thrF("𝔽⌾(nested⊸⊑)𝕩: 𝔽 must return an array with the same shape as its input (expected %0H, got %0H)", w, rep);
       return select_replace(U'⊑', w, x, rep, wia, xia, 1);
     }
     decG(w);

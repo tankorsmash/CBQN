@@ -3,6 +3,15 @@
 #include "../builtins.h"
 #include "../ns.h"
 #include "../utils/cstr.h"
+#include "../utils/calls.h"
+#include <stdarg.h>
+
+#ifndef DEBUG
+  #define DEBUG 0
+#endif
+#ifndef TEST_UTILS
+  #define TEST_UTILS DEBUG
+#endif
 
 B itype_c1(B t, B x) {
   B r;
@@ -31,7 +40,7 @@ B refc_c1(B t, B x) {
 }
 B squeeze_c1(B t, B x) {
   if (!isArr(x)) return x;
-  return any_squeeze(x);
+  return squeeze_any(x);
 }
 B deepSqueeze_c1(B t, B x) {
   return squeeze_deep(x);
@@ -106,20 +115,34 @@ B listVariations_c2(B t, B w, B x) {
        ac8=false, ac16=false, ac32=false, abit=false;
   usz xia = IA(x);
   SGetU(x)
-  if (isNum(xf)) {
+  if (numFill(xf)) {
     i32 min=I32_MAX, max=I32_MIN;
     if      (xe==el_i8 ) { i8*  xp = i8any_ptr (x); for (usz i = 0; i < xia; i++) { if (xp[i]>max) max=xp[i]; if (xp[i]<min) min=xp[i]; } }
     else if (xe==el_i16) { i16* xp = i16any_ptr(x); for (usz i = 0; i < xia; i++) { if (xp[i]>max) max=xp[i]; if (xp[i]<min) min=xp[i]; } }
     else if (xe==el_i32) { i32* xp = i32any_ptr(x); for (usz i = 0; i < xia; i++) { if (xp[i]>max) max=xp[i]; if (xp[i]<min) min=xp[i]; } }
-    else if (xe==el_f64) { f64* xp = f64any_ptr(x); for (usz i = 0; i < xia; i++) { if (xp[i]>max) max=xp[i]; if (xp[i]<min) min=xp[i]; if(xp[i]!=(i32)xp[i]) goto onlyF64; } }
-    else for (usz i = 0; i < xia; i++) { B c = GetU(x, i); if (!isF64(c)) goto noSpec; if (c.f>max) max=c.f; if (c.f<min) min=c.f; }
+    else if (xe==el_f64) { f64* xp = f64any_ptr(x); for (usz i = 0; i < xia; i++) { if (xp[i]>max) max=xp[i]; if (xp[i]<min) min=xp[i]; if(!q_fi32(xp[i])) goto onlyF64; } }
+    else {
+      bool notFloat = false;
+      for (usz i = 0; i < xia; i++) {
+        B c = GetU(x, i);
+        if (!isF64(c)) goto noSpec;
+        if (!q_fi32(o2fG(c))) {
+          notFloat=true;
+        } else {
+          i32 v = o2iG(c);
+          if (v>max) max=v;
+          if (v<min) min=v;
+        }
+      }
+      if (notFloat) goto onlyF64;
+    }
     ai8  = min==(i8 )min && max==(i8 )max;
     ai16 = min==(i16)min && max==(i16)max;
     ai32 = min==(i32)min && max==(i32)max;
     abit = min>=0 && max<=1;
     onlyF64:
     af64 = true;
-  } else if (isC32(xf)) {
+  } else if (chrFill(xf)) {
     u32 max = 0;
     if (xe!=el_c8) for (usz i = 0; i < xia; i++) {
       B c = GetU(x, i);
@@ -231,8 +254,8 @@ static NOINLINE B unshareShape(Arr* x) {
   arr_shReplace(x, xr, sh);
   return taga(x);
 }
-static B unshare(B x) {
-  if (!isArr(x)) return x;
+static B unshare(B x) { // doesn't consume
+  if (!isArr(x)) return inc(x);
   usz xia = IA(x);
   switch (TY(x)) {
     case t_bitarr: return unshareShape((Arr*)cpyBitArr(incG(x)));
@@ -253,7 +276,7 @@ static B unshare(B x) {
       Arr* r = arr_shCopy(m_fillarr0p(xia), x);
       fillarr_setFill(r, unshare(getFillR(x)));
       B* rp = fillarrv_ptr(r);
-      B* xp = arr_bptr(x);
+      B* xp = arr_bptrG(x);
       for (usz i = 0; i < xia; i++) rp[i] = unshare(xp[i]);
       return unshareShape(r);
     }
@@ -269,8 +292,23 @@ B eequal_c2(B t, B w, B x) {
   return m_i32(r);
 }
 
-#ifdef TEST_BITCPY
+bool indistinguishable(B w, B x);
+
+B indistinguishable_c2(B t, B w, B x) {
+  bool r = indistinguishable(w, x);
+  dec(w); dec(x);
+  return m_i32(r);
+}
+
+B internalTemp_c1(B t, B x) {
+  return x;
+}
+
+#if TEST_UTILS
   #include "../utils/mut.h"
+  #if RANDOMIZE_HEURISTICS
+    extern u64 heuristic_seed;
+  #endif
 #endif
 #if NATIVE_COMPILER
   extern B native_comp;
@@ -280,68 +318,114 @@ B eequal_c2(B t, B w, B x) {
   extern i32 fullCellFills;
   extern i32 cellFillErrored;
 #endif
-#if TEST_RANGE
-  #include "../utils/calls.h"
-#endif
-#if TEST_GROUP_STAT
+#if TEST_UTILS && SINGELI
   extern void (*const si_group_statistics_i8)(void*,usz,uint8_t*,usz*,uint8_t*,usz*,int8_t*);
   extern void (*const si_group_statistics_i16)(void*,usz,uint8_t*,usz*,uint8_t*,usz*,int16_t*);
   extern void (*const si_group_statistics_i32)(void*,usz,uint8_t*,usz*,uint8_t*,usz*,int32_t*);
 #endif
-B internalTemp_c1(B t, B x) {
-  #if TEST_GROUP_STAT
-    u8 bad; usz neg; u8 sort; usz change; i32 max;
-    #define CASE(T) \
-      if (TI(x,elType)==el_##T) { T max_t; si_group_statistics_##T(tyany_ptr(x), IA(x), &bad, &neg, &sort, &change, &max_t); max = max_t; } \
-      else
-    CASE(i8) CASE(i16) CASE(i32)
-    thrM("bad eltype");
-    #undef CASE
-    decG(x);
-    f64* rp; B r = m_f64arrv(&rp, 5);
-    rp[0] = bad; rp[1] = neg; rp[2] = sort; rp[3] = change; rp[4] = max;
-    return r;
-  #endif
-  #if TEST_RANGE
-    i64 buf[2];
-    bool b = getRange_fns[TI(x,elType)](tyany_ptr(x), buf, IA(x));
-    decG(x);
-    f64* rp;
-    B r = m_f64arrv(&rp, 3);
-    rp[0] = buf[0];
-    rp[1] = buf[1];
-    rp[2] = b;
-    return r;
-  #endif
-  #if TEST_CELL_FILLS
-    if (isNum(x)) fullCellFills = o2iG(x);
-    B r = m_i32(cellFillErrored);
-    cellFillErrored = 0;
-    return r;
-  #endif
-  #if NATIVE_COMPILER
-    switchComp();
-    B r = bqn_exec(x, bi_N);
-    switchComp();
-    return r;
-  #endif
-  #ifdef TEST_BITCPY
-    SGetU(x)
-    bit_cpyN(bitarr_ptr(GetU(x,0)), o2s(GetU(x,1)), bitany_ptr(GetU(x,2)), o2s(GetU(x,3)), o2s(GetU(x,4)));
-  #endif
-  return x;
-}
-
+  
 B internalTemp_c2(B t, B w, B x) {
-  #if NATIVE_COMPILER
-    return c2(native_comp, w, x);
-  #endif
-  #ifdef TEST_MUT
-    SGetU(x)
-    FILL_TO(tyarr_ptr(w), o2s(GetU(x,0)), o2s(GetU(x,1)), GetU(x,2), o2s(GetU(x,3)));
-    dec(w);
-  #endif
-  return x;
+  i32 o = o2i(w);
+  B r;
+  switch (o) {
+    case 0: {
+      printI(x);
+      return x;
+    }
+    #if RANDOMIZE_HEURISTICS
+      case 1: {
+        if (isC32(x)) { // read seed
+          i32* rp;
+          r = m_i32arrv(&rp, 2);
+          rp[0] = (u32) heuristic_seed;
+          rp[1] = (u32) (heuristic_seed >> 32);
+          return r;
+        }
+        if (q_i32(x)) { // simple set seed
+          heuristic_seed = o2i(x);
+          return x;
+        }
+        if (isArr(x)) { // full set seed
+          x = toI32Any(x);
+          i32* xp = i32any_ptr(x);
+          heuristic_seed = (u32)xp[0] | ((u64)(u32)xp[1])<<32;
+          return x;
+        }
+        thrM("•internal.Temp: bad RANDOMIZE_HEURISTICS usage");
+      }
+    #endif
+    
+    #if NATIVE_COMPILER
+      case 100: {
+        SGet(x)
+        r = c2(native_comp, Get(x,0), Get(x,1));
+        goto dec_ret;
+      }
+      case 101: {
+        switchComp();
+        B r = bqn_exec(x, bi_N);
+        switchComp();
+        return r;
+      }
+    #endif
+    
+    #if TEST_UTILS
+      case 201: { // test/cases/fuzz/bitarr-fill.bqn
+        SGetU(x)
+        FILL_TO(tyarr_ptr(GetU(x,4)), o2s(GetU(x,0)), o2s(GetU(x,1)), GetU(x,2), o2s(GetU(x,3)));
+        return x;
+      }
+      case 202: { // test/bitcpy.bqn
+        SGetU(x)
+        bit_cpyN(bitarr_ptr(GetU(x,0)), o2s(GetU(x,1)), bitany_ptr(GetU(x,2)), o2s(GetU(x,3)), o2s(GetU(x,4)));
+        return x;
+      }
+      case 203: { // test/cases/build-specific/test_range.bqn
+        i64 buf[2];
+        bool b = getRange_fns[TI(x,elType)](tyany_ptr(x), buf, IA(x));
+        decG(x);
+        f64* rp;
+        B r = m_f64arrv(&rp, 3);
+        rp[0] = buf[0];
+        rp[1] = buf[1];
+        rp[2] = b;
+        return r;
+      }
+    #endif
+    
+    #if TEST_UTILS && SINGELI
+      case 298: { // test/cases/build-specific/test_group_stat.bqn
+        u8 bad; usz neg; u8 sort; usz change; i32 max;
+        #define CASE(T) \
+          if (TI(x,elType)==el_##T) { T max_t; si_group_statistics_##T(tyany_ptr(x), IA(x), &bad, &neg, &sort, &change, &max_t); max = max_t; } \
+          else
+        CASE(i8) CASE(i16) CASE(i32)
+        thrM("bad eltype");
+        #undef CASE
+        decG(x);
+        f64* rp; B r = m_f64arrv(&rp, 5);
+        rp[0] = bad; rp[1] = neg; rp[2] = sort; rp[3] = change; rp[4] = max;
+        return r;
+      }
+    #endif
+    
+    #if TEST_CELL_FILLS
+      case 299: { // test/cells.bqn
+        if (isNum(x)) fullCellFills = o2iG(x);
+        B r = m_i32(cellFillErrored);
+        cellFillErrored = 0;
+        return r;
+      }
+    #endif
+    
+    default:
+      thrF("Unknown/unsupported •internal.Temp mode: %i", o);
+  }
+  thrM("•internal.Temp: shouldn't break!");
+  
+  dec_ret: MAYBE_UNUSED;
+  dec(x);
+  return r;
 }
 
 B heapDump_c1(B t, B x) {
@@ -405,11 +489,59 @@ B iKeep_c1(B t, B x) { return x; }
 B iProperties_c2(B t, B w, B x) {
   if (w.u!=m_c32(0).u || x.u != m_c32(0).u) thrM("𝕨 •internal.Properties 𝕩: bad arg");
   i32* rp;
-  B r = m_i32arrv(&rp, 3);
+  B r = m_i32arrv(&rp, 7);
   rp[0] = sizeof(usz)*8;
   rp[1] = PROPER_FILLS;
   rp[2] = EACH_FILLS;
+  rp[3] = 0;
+  #if RANDOMIZE_HEURISTICS
+  rp[3] = 1;
+  #endif
+  rp[4] = 0;
+  #if HEAP_VERIFY
+  rp[4] = 1;
+  #endif
+  rp[5] = DEBUG;
+  rp[6] = TEST_UTILS;
   return r;
+}
+
+static NOINLINE NORETURN void validate_fail(bool crash, char* p, ...) {
+  va_list a;
+  va_start(a, p);
+  B msg = do_fmt(emptyCVec(), p, a);
+  va_end(a);
+  if (!crash) thr(msg);
+  printsB(msg);
+  fatal("object failed validation");
+}
+
+
+bool validate_flags(bool crash, B x) {
+  if (isArr(x) && IA(x)!=0) {
+    if (FL_HAS(x, fl_squoze)) {
+      B t = unshare(x);
+      t = squeeze_any(t);
+      if (TI(t,elType) != TI(x,elType)) validate_fail(crash, "Validate: Wrongly squeezed: array has eltype %S, expected %S", eltype_repr(TI(x,elType)), eltype_repr(TI(t,elType)));
+      decG(t);
+    }
+    #define DSC_ASC(FLAG, CMP) \
+    if (FL_HAS(x, FLAG)) {   \
+      if (RNK(x)==1) {       \
+        SGetU(x)             \
+        usz ia = IA(x);      \
+        for (ux i = 0; i < ia-1; i++) if (compare(GetU(x,i),GetU(x,i+1)) CMP) validate_fail(crash, "Validate: Incorrectly marked " #FLAG " between indices %z+0‿1", i); \
+      }                      \
+    }
+    DSC_ASC(fl_dsc, < 0)
+    DSC_ASC(fl_asc, > 0)
+  }
+  return true;
+}
+
+B iValidate_c1(B t, B x) {
+  validate_flags(false, x);
+  return x;
 }
 
 B unshare_c1(B t, B x) {
@@ -433,8 +565,8 @@ B getInternalNS(void) {
     #undef F
     
     #define F(X) incG(bi_##X),
-    Body* d =    m_nnsDesc("type","eltype","refc","squeeze","ispure","info", "keep", "purekeep","listvariations","variation","clearrefs", "hasfill","unshare","deepsqueeze","heapdump","eequal",        "gc",        "temp","heapstats", "objflags", "properties");
-    internalNS = m_nns(d,F(itype)F(elType)F(refc)F(squeeze)F(isPure)F(info)F(iKeep)F(iPureKeep)F(listVariations)F(variation)F(clearRefs)F(iHasFill)F(unshare)F(deepSqueeze)F(heapDump)F(eequal)F(internalGC)F(internalTemp)F(heapStats)F(iObjFlags)F(iProperties));
+    Body* d =    m_nnsDesc("type","eltype","refc","squeeze","ispure","info", "keep", "purekeep","listvariations","variation","clearrefs", "hasfill","unshare","deepsqueeze","heapdump","eequal",        "gc",        "temp","heapstats", "objflags", "properties", "validate", "indistinguishable");
+    internalNS = m_nns(d,F(itype)F(elType)F(refc)F(squeeze)F(isPure)F(info)F(iKeep)F(iPureKeep)F(listVariations)F(variation)F(clearRefs)F(iHasFill)F(unshare)F(deepSqueeze)F(heapDump)F(eequal)F(internalGC)F(internalTemp)F(heapStats)F(iObjFlags)F(iProperties)F(iValidate)F( indistinguishable));
     #undef F
     gc_add(internalNS);
   }

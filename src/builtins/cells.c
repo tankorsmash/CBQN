@@ -179,7 +179,7 @@ NOINLINE B toCells(B x) {
   }
 }
 NOINLINE B toKCells(B x, ur k) {
-  assert(isArr(x) && k<=RNK(x) && k>=0);
+  assert(isArr(x) && k<=RNK(x));
   usz* xsh = SH(x);
   usz cam = shProd(xsh, 0, k);
   
@@ -204,9 +204,7 @@ NOINLINE B leading_axis_arith(FC2 fc2, B w, B x, usz* wsh, usz* xsh, ur mr) { //
   assert(isArr(w) && isArr(x) && TI(w,elType)!=el_B && TI(x,elType)!=el_B && IA(w)!=0 && IA(x)!=0);
   ur wr = RNK(w);
   ur xr = RNK(x);
-  #if DEBUG
-    assert(wr!=xr && (mr==wr || mr==xr) && eqShPart(wsh, xsh, mr));
-  #endif
+  if (DEBUG) assert(wr!=xr && (mr==wr || mr==xr) && eqShPart(wsh, xsh, mr));
   usz cam = shProd(xsh, 0, mr);
   
   B b = mr==wr? x : w; // bigger argument
@@ -214,7 +212,7 @@ NOINLINE B leading_axis_arith(FC2 fc2, B w, B x, usz* wsh, usz* xsh, ur mr) { //
   ur br = wr>xr? wr : xr;
   
   usz csz = shProd(bsh, mr, br);
-  if (csz<5120>>arrTypeBitsLog(TY(b))) {
+  if (HEURISTIC(csz<5120>>arrTypeBitsLog(TY(b)))) {
     B s = mr==wr? w : x; // smaller argument
     s = C2(slash, m_usz(csz), taga(arr_shVec(TI(s,slice)(s,0,IA(s)))));
     assert(reusable(s) && RNK(s)==1);
@@ -234,22 +232,30 @@ NOINLINE B leading_axis_arith(FC2 fc2, B w, B x, usz* wsh, usz* xsh, ur mr) { //
 
 
 // fast special-case implementations
-B select_cells_single(usz ind, B x, usz cam, usz l, usz csz, bool leaf); // from select.c
-static NOINLINE B select_cells(usz ind, B x, usz cam, usz k, bool leaf) { // ind {leaf? <∘⊑; ⊏}⎉¯k x
-  ur xr = RNK(x);
-  assert(xr>1 && k<xr);
+B select_cells_single(usz ind, B x, usz cam, usz l, usz csz); // from select.c
+static NOINLINE B select_cells(usz ind, B x, ur xr, usz cam, usz k) { // ind ⊏⎉¯k x
+  assert(xr == RNK(x) && xr>1 && k<xr);
   usz* xsh = SH(x);
   usz csz = shProd(xsh, k+1, xr);
   usz l = xsh[k];
-  assert(0<=ind && ind<l);
-  assert(cam*l*csz == IA(x));
-  B r = select_cells_single(ind, x, cam, l, csz, leaf);
-  Arr* ra = a(r);
-  usz* rsh = arr_shAlloc(ra, leaf? k : xr-1);
+  assert(ind < l && cam*l*csz == IA(x));
+  B r = select_cells_single(ind, x, cam, l, csz);
+  usz* rsh = arr_shAlloc(a(r), xr-1);
   if (rsh) {
     shcpy(rsh, xsh, k);
-    if (!leaf) shcpy(rsh+k, xsh+k+1, xr-1-k);
+    shcpy(rsh+k, xsh+k+1, xr-1-k);
   }
+  decG(x);
+  return r;
+}
+static NOINLINE B pick_cells(usz ind, B x, ur xr, usz cam, usz k) { // ind <∘⊑⎉¯k x
+  assert(xr == RNK(x) && xr>0 && k<=xr);
+  usz* xsh = SH(x);
+  usz l = shProd(xsh, k, xr);
+  assert(ind < (k==xr? 1 : xsh[k]) && cam*l == IA(x));
+  B r = select_cells_single(ind, x, cam, l, 1);
+  usz* rsh = arr_shAlloc(a(r), k);
+  if (rsh) shcpy(rsh, xsh, k);
   decG(x);
   return r;
 }
@@ -257,7 +263,7 @@ static NOINLINE B select_cells(usz ind, B x, usz cam, usz k, bool leaf) { // ind
 static void set_column_typed(void* rp, B v, u8 e, ux p, ux stride, ux n) { // may write to all elements 0 ≤ i < stride×n, and after that too for masked stores
   assert(p < stride);
   switch(e) { default: UD;
-    case el_bit: if (stride<64 && n>64) goto bit_special;
+    case el_bit: if (stride<64 && HEURISTIC(n>64)) goto bit_special;
                  NOVECTORIZE for (usz i=0; i<n; i++, p+= stride) bitp_set(rp, p, o2bG(v));return;
     case el_c8 : NOVECTORIZE for (usz i=0; i<n; i++, p+= stride) ((u8 *)rp)[p] = o2cG(v); return;
     case el_c16: NOVECTORIZE for (usz i=0; i<n; i++, p+= stride) ((u16*)rp)[p] = o2cG(v); return;
@@ -328,9 +334,9 @@ static NOINLINE Arr* match_cells(bool ne, B w, B x, ur wr, ur xr, ur k, usz len)
     CMP_AA_CALL(cmp, rp, wp, xp, len);
   } else {
     if (we==el_bit || xe==el_bit) { mm_free((Value*)r); return NULL; }
-    EqFnObj eqfn = EQFN_GET(we, xe);
+    MatchFnObj match = MATCH_GET(we, xe);
     for (usz i = 0; i < len; i++) {
-      bitp_set(rp, i, ne^EQFN_CALL(eqfn, wp, xp, csz));
+      bitp_set(rp, i, ne^MATCH_CALL(match, wp, xp, csz));
       wp += ww; xp += xw;
     }
   }
@@ -356,9 +362,7 @@ static NOINLINE B to_fill_cell(B x, ur k, u32 chr) { // consumes x
   usz* sh = SH(x)+k;
   usz csz = 1;
   for (usz i=0; i<cr; i++) if (mulOn(csz, sh[i])) thrF("%c: Empty argument too large (%H ≡ ≢𝕩)", chr, x);
-  MAKE_MUT(fc, csz);
-  mut_fill(fc, 0, xf, csz); dec(xf);
-  Arr* ca = mut_fp(fc);
+  Arr* ca = reshape_one(csz, xf);
   usz* csh = arr_shAlloc(ca, cr);
   if (cr>1) shcpy(csh, sh, cr);
   decG(x);
@@ -441,11 +445,11 @@ B for_cells_c1(B f, u32 xr, u32 cr, u32 k, B x, u32 chr) { // F⎉cr x; array x,
       case n_select:
         if (IA(x)==0) goto noSpecial;
         if (cr==0) goto base;
-        return select_cells(0, x, cam, k, false);
+        return select_cells(0, x, xr, cam, k);
       case n_pick:
         if (IA(x)==0) goto noSpecial;
-        if (cr==0 || !TI(x,arrD1)) goto base;
-        return select_cells(0, x, cam, k, true);
+        if (!TI(x,arrD1)) goto base;
+        return pick_cells(0, x, xr, cam, k);
       case n_couple: {
         Arr* r = cpyWithShape(x); xsh=PSH(r);
         if (xr==UR_MAX) thrF("≍%U 𝕩: Result rank too large (%i≡=𝕩)", chr==U'˘'? "˘" : "⎉𝕘", xr);
@@ -524,8 +528,8 @@ B for_cells_c1(B f, u32 xr, u32 cr, u32 k, B x, u32 chr) { // F⎉cr x; array x,
           usz m = xsh[k];
           if (m==0) return insert_cells_identity(x, fd->f, xsh, xr, k, rtid);
           if (TI(x,elType)==el_B) break;
-          if (m==1 || frtid==n_ltack) return select_cells(0  , x, cam, k, false);
-          if (        frtid==n_rtack) return select_cells(m-1, x, cam, k, false);
+          if (m==1 || frtid==n_ltack) return select_cells(0  , x, xr, cam, k);
+          if (        frtid==n_rtack) return select_cells(m-1, x, xr, cam, k);
           if (isPervasiveDyExt(fd->f) && 1==shProd(xsh, k+1, xr)) {
             B r;
             // special cases always return rank 1
@@ -695,7 +699,7 @@ NOINLINE B for_cells_AS(B f, B w, B x, ur wcr, ur wr, u32 chr) { // F⟜x⎉wcr 
     if (IA(w)!=0 && isPervasiveDy(f)) {
       if (isAtm(x)) return c2(f, w, x);
       if (RNK(x)!=wcr || !eqShPart(SH(x), wsh+wk, wcr)) goto generic;
-      if (TI(w,elType)==el_B || TI(x,elType)==el_B || (IA(x)>(2048*8)>>arrTypeBitsLog(TY(x)) && IA(w)!=IA(x))) goto generic;
+      if (TI(w,elType)==el_B || TI(x,elType)==el_B || HEURISTIC(IA(x)>(2048*8)>>arrTypeBitsLog(TY(x)) && IA(w)!=IA(x))) goto generic;
       return c2(f, w, C2(shape, C1(fne, incG(w)), x));
     }
   } else if (!isMd(f)) {
@@ -721,15 +725,16 @@ NOINLINE B for_cells_SA(B f, B w, B x, ur xcr, ur xr, u32 chr) { // w⊸F⎉xcr 
       case n_select:
         if (isArr(w) && xcr==1) {
           if (!TI(w,arrD1)) {
-            w = num_squeezeChk(w);
-            if (!TI(w,arrD1)) break;
+            u8 we;
+            w = squeeze_numTry(w, &we, SQ_ANY);
+            if (we==el_B) break;
           }
           assert(xr > 1);
           ur wr = RNK(w);
           if (wr == 0) {
             usz ind = WRAP(o2i64(IGetU(w,0)), xsh[xk], break);
             decG(w);
-            return select_cells(ind, x, cam, xk, false);
+            return select_cells(ind, x, xr, cam, xk);
           }
           ur rr = xk+wr;
           ShArr* rsh = m_shArr(rr);
@@ -740,7 +745,7 @@ NOINLINE B for_cells_SA(B f, B w, B x, ur xcr, ur xr, u32 chr) { // w⊸F⎉xcr 
         }
         if (isF64(w) && xcr>=1) {
           usz l = xsh[xk];
-          return select_cells(WRAP(o2i64(w), l, thrF("𝕨⊏𝕩: Indexing out-of-bounds (𝕨≡%R, %s≡≠𝕩)", w, l)), x, cam, xk, false);
+          return select_cells(WRAP(o2i64(w), l, thrF("𝕨⊏𝕩: Indexing out-of-bounds (𝕨≡%R, %s≡≠𝕩)", w, l)), x, xr, cam, xk);
         }
         break;
       case n_couple: if (RNK(x)==1) {
@@ -750,17 +755,17 @@ NOINLINE B for_cells_SA(B f, B w, B x, ur xcr, ur xr, u32 chr) { // w⊸F⎉xcr 
       } break;
       case n_pick: if (isF64(w) && xcr==1 && TI(x,arrD1)) {
         usz l = xsh[xk];
-        return select_cells(WRAP(o2i64(w), l, thrF("𝕨⊑𝕩: Indexing out-of-bounds (𝕨≡%R, %s≡≠𝕩)", w, l)), x, cam, xk, true);
+        return pick_cells(WRAP(o2i64(w), l, thrF("𝕨⊑𝕩: Indexing out-of-bounds (𝕨≡%R, %s≡≠𝕩)", w, l)), x, xr, cam, xk);
       } break;
-      case n_shifta: case n_shiftb: if (isAtm(w)) {
-        if (IA(x)==0) return x;
-        if (xcr!=1) {
-          if (xcr==0) break;
-          if (!(xsh[xk]==1 || shProd(xsh, xk+1, xr)==1)) break;
+      case n_shifta: case n_shiftb:
+        if (xcr!=1) break;
+        if (!unpack_unit(&w)) break;
+        if (IA(x)==0) {
+          dec(w);
+          return x;
         }
-        if (isArr(w)) w = TO_GET(w, 0);
         return shift_cells(w, x, cam, xsh[xk], el_or(TI(x,elType), selfElType(w)), rtid);
-      } break;
+        break;
       case n_take: case n_drop: {
         bool take = rtid==n_take;
         B a;
@@ -803,7 +808,7 @@ NOINLINE B for_cells_SA(B f, B w, B x, ur xcr, ur xr, u32 chr) { // w⊸F⎉xcr 
         if (isAtm(w)) return c2(f, w, x);
         if (IA(x)==0) break;
         if (RNK(w)!=xcr || !eqShPart(SH(w), xsh+xk, xcr)) break;
-        if (TI(w,elType)==el_B || TI(x,elType)==el_B || (IA(w)>(2048*8)>>arrTypeBitsLog(TY(w)) && IA(w)!=IA(x))) break;
+        if (TI(w,elType)==el_B || TI(x,elType)==el_B || HEURISTIC(IA(w)>(2048*8)>>arrTypeBitsLog(TY(w)) && IA(w)!=IA(x))) break;
         return c2(f, C2(shape, C1(fne, incG(x)), w), x);
       }
     }
@@ -829,7 +834,7 @@ NOINLINE B for_cells_AA(B f, B w, B x, ur wcr, ur xcr, u32 chr) { // w F⎉wcr�
   usz cam0 = 1;
   for (usz i = 0; i < k; i++) {
     usz wl = wsh[i], xl = xsh[i];
-    if (wl != xl) thrF("𝕨%c𝕩: Argument frames don't agree (%H ≡ ≢𝕨, %H ≡ ≢𝕩, common frame of %i axes)", chr, w, x, k);
+    if (wl != xl) thrF("𝕨%U𝕩: Argument frames don't agree (%H ≡ ≢𝕨, %H ≡ ≢𝕩, common frame of %i axes)", chr==U'˘'?"𝔽˘":"𝔽⎉𝕘", w, x, k);
     cam0*= wsh[i];
   }
   usz ext = shProd(zsh, k, zk);

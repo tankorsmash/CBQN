@@ -211,7 +211,8 @@ static B compress_grouped(u64* wp, B x, usz wia, usz wsum, u8 xt) { // expected 
         for (usz i = 0; i < wia; i++) if (bitp_get(wp,i)) {
           for (usz j = 0; j < csz; j++) HARR_ADDA(rp, Get(x,i*csz+j));
         }
-        return withFill(HARR_FV(rp), getFillR(x));
+        r = withFill(HARR_FV(rp), getFillR(x));
+        goto b_res;
       }
       
       rh = m_harrUv(ria);
@@ -222,6 +223,7 @@ static B compress_grouped(u64* wp, B x, usz wia, usz wsum, u8 xt) { // expected 
       for (usz i = 0; i < wsum*csz; i++) inc(((B*)rp)[i]);
       NOGC_E;
       r = withFill(rh.b, getFillR(x));
+      b_res:;
       a(r)->ia = wsum; // Shape-setting code at end of compress expects this
     }
   } else { // Bits
@@ -577,7 +579,7 @@ B slash_c1(B t, B x) {
   usz xia = IA(x);
   B r;
   u8 xe = TI(x,elType);
-  if (xe!=el_bit && s<=xia) { x = num_squeezeChk(x); xe = TI(x,elType); }
+  if (xe!=el_bit && s<=xia) x = squeeze_numTry(x, &xe, SQ_NUM);
   if (xe==el_bit) {
     r = where(x, xia, s);
   } else if (RARE(xia > (usz)I32_MAX+1)) {
@@ -625,8 +627,14 @@ B slash_c1(B t, B x) {
 B slash_c2(B t, B w, B x) {
   i32 wv = -1;
   usz wia ONLY_GCC(=0);
+  u8 we ONLY_GCC(=0);
+  
   if (isArr(w)) {
-    if (depth(w)>1) goto base;
+    we = TI(w,elType);
+    if (!elInt(we)) {
+      w = squeeze_numTry(w, &we, SQ_MSGREQ(SQ_NUM));
+      if (!elNum(we)) goto base;
+    }
     ur wr = RNK(w);
     if (wr>1) thrF("𝕨/𝕩: Simple 𝕨 must have rank 0 or 1 (%i≡=𝕨)", wr);
     if (wr<1) { w = TO_GET(w, 0); goto atom; }
@@ -638,6 +646,7 @@ B slash_c2(B t, B w, B x) {
     wv = o2iG(w);
     if (wv < 0) thrM("𝕨/𝕩: 𝕨 cannot be negative");
   }
+  
   if (isAtm(x) || RNK(x)==0) thrM("𝕨/𝕩: 𝕩 must have rank at least 1 for simple 𝕨");
   ur xr = RNK(x);
   usz xlen = *SH(x);
@@ -649,24 +658,21 @@ B slash_c2(B t, B w, B x) {
     if (RARE(wia!=xlen)) thrF("𝕨/𝕩: Lengths of components of 𝕨 must match 𝕩 (%s ≠ %s)", wia, xlen);
     
     u64 s;
-    u8 we = TI(w,elType);
-    if (!elInt(we)) {
-      w=any_squeeze(w); we=TI(w,elType);
-      if (!elInt(we)) {
-        s = usum(w);
-        goto arrW_base;
-      }
-    }
     if (we==el_bit) {
       wbool:
       r = compress(w, x, wia, xl, xt);
       goto decWX_ret;
     }
+    if (!elInt(we)) {
+      s = usum(w);
+      goto arrW_base;
+    }
     s = usum(w);
+    if (s>=USZ_MAX) thrOOM();
     if (xl>6 || (xl<3 && xl!=0)) goto arrW_base;
     if (s<=wia) {
       if (s==0) { r = zeroCells(x); goto decWX_ret; }
-      w=num_squeezeChk(w); we=TI(w,elType);
+      w = squeeze_numTry(w, &we, SQ_NUM);
       if (we==el_bit) goto wbool;
     }
     // s≠0 now
@@ -675,8 +681,11 @@ B slash_c2(B t, B w, B x) {
       arrW_base:
       SLOW2("𝕨/𝕩", w, x);
       B xf = getFillR(x);
+      ux ria = s;
       usz csz = arr_csz(x);
-      MAKE_MUT_INIT(r0, s*csz, TI(x,elType)); MUTG_INIT(r0);
+      mulOn(ria, csz);
+      if (s>=USZ_MAX) thrOOM();
+      MAKE_MUT_INIT(r0, ria, TI(x,elType)); MUTG_INIT(r0);
       SGetU(w)
       B wc; usz ri=0;
       if (csz!=1) {   for (ux i=0; i<wia; i++) { if (!q_usz(wc=GetU(w,i))) goto pfree; usz c=o2sG(wc); for(ux j=0;j<c;j++) { mut_copyG(r0, ri, x, i*csz, csz); ri+= csz; } } }
@@ -842,9 +851,9 @@ static B finish_small_count(B r, u16* ov) {
   // Need to add 1<<15 to r at i for each index i in ov
   u16 e = -1; // ov end marker
   if (*ov == e) {
-    r = num_squeeze(r);
+    r = squeeze_numNew(r);
   } else {
-    r = taga(cpyI32Arr(r)); i32* rp = tyany_ptr(r);
+    r = taga(cpyI32Arr(r)); i32* rp = i32arr_ptr(r);
     usz on = 0; u16 ovi;
     for (usz i=0; (ovi=ov[i])!=e; i++) {
       i32 rv = (rp[ovi]+= 1<<15);
@@ -854,7 +863,7 @@ static B finish_small_count(B r, u16* ov) {
       }
     }
     if (RARE(on > 0)) { // Overflowed i32!
-      r = taga(cpyF64Arr(r)); f64* rp = tyany_ptr(r);
+      r = taga(cpyF64Arr(r)); f64* rp = f64arr_ptr(r);
       for (usz i=0; i<on; i++) rp[ov[i]]+= 1U<<31;
     }
     FL_SET(r, fl_squoze);
@@ -901,7 +910,7 @@ B slash_im(B t, B x) {
       usz ria = 1 + (sum>0);
       f64* rp; r = m_f64arrv(&rp, ria);
       rp[sum>0] = sum; rp[0] = xia - sum;
-      r = num_squeeze(r); break;
+      r = squeeze_numNewTy(el_f64,r); break;
     }
 #if SINGELI_SIMD
   #define INIT_RES(N,RIA) \
@@ -946,7 +955,7 @@ B slash_im(B t, B x) {
     if (rmax<128) { /* xia<128 or xia<ria/8, fine to process x slowly */     \
       INIT_RES(8,ria)                                                        \
       for (usz i = 0; i < xia; i++) rp[xp[i]]++;                             \
-      r = num_squeeze(r); break;                                             \
+      r = squeeze_numNewTy(el_i8,r); break;                                  \
     }
   #define CASE_SMALL(N) \
     case el_i##N: {                                                          \
@@ -976,7 +985,7 @@ B slash_im(B t, B x) {
       if (xia>I32_MAX) thrM("/⁼𝕩: 𝕩 too large");
       INIT_RES(32,ria)
       simd_count_i32_i32(rp, xp, xia);
-      r = num_squeeze(r); break;
+      r = squeeze_numNewTy(el_i32,r); break;
     }
   #undef TRY_SMALL_OUT
   #undef INIT_RES
@@ -993,7 +1002,7 @@ B slash_im(B t, B x) {
       if (xia<=I32_MAX) { i32* rp; r = m_i32arrv(&rp, ria); vfor (usz i=0; i<ria; i++) rp[i]=t[i]; } \
       else              { f64* rp; r = m_f64arrv(&rp, ria); vfor (usz i=0; i<ria; i++) rp[i]=t[i]; } \
       TFREE(t);                                                                \
-      r = num_squeeze(r); break; }
+      r = squeeze_numNew(r); break; }
     CASE(8) CASE(16) CASE(32)
   #undef CASE
 #endif
@@ -1014,8 +1023,7 @@ B slash_im(B t, B x) {
       break;
     }
     case el_c8: case el_c16: case el_c32: case el_B: {
-      x = num_squeezeChk(x);
-      xe = TI(x,elType);
+      x = squeeze_numTry(x, &xe, SQ_NUM);
       if (elNum(xe)) goto retry;
       B* xp = TO_BPTR(x);
       for (usz i=0; i<xia; i++) o2i64(xp[i]);
@@ -1030,81 +1038,83 @@ B slash_im(B t, B x) {
   extern INIT_GLOBAL BlendArrScalarFn* blendArrScalarFns;
 #endif
 
-typedef struct { B b; void* data; } AnyArr;
-AnyArr cpyElTypeArr(u8 re, B x) { // consumes x; returns new array with the given element type, with data & shape from x
-  Arr* a;
-  switch (re) { default: UD;
-    case el_bit: a = cpyBitArr(x); goto tyarr;
-    case el_i8:  a = cpyI8Arr(x); goto tyarr;
-    case el_i16: a = cpyI16Arr(x); goto tyarr;
-    case el_i32: a = cpyI32Arr(x); goto tyarr;
-    case el_f64: a = cpyF64Arr(x); goto tyarr;
-    case el_c8:  a = cpyC8Arr(x); goto tyarr;
-    case el_c16: a = cpyC16Arr(x); goto tyarr;
-    case el_c32: a = cpyC32Arr(x); goto tyarr;
-    case el_B:
-      a = cpyHArr(x);
-      return (AnyArr){taga(a), harrv_ptr(a)};
-  }
-  tyarr:
-  return (AnyArr){taga(a), tyarrv_ptr((TyArr*)a)};
-}
-AnyArr m_anyarrc(u8 re, B x) { // consumes x; returns new array with given element type; may start NOGC
-  if (re==el_B) {
-    HArr_p r = m_harrUc(x);
-    return (AnyArr) {r.b, r.a};
-  }
-  B r;
-  void* rp = m_tyarrlbc(&r, elwBitLog(re), x, el2t(re));
-  return (AnyArr) {r, rp};
-}
 
+#define BY_MASK(F, ELTS, C) ({ \
+  u64 c = (C);        \
+  B* elts_ = (ELTS);  \
+  while (c) {         \
+    F(elts_[CTZ(c)]); \
+    c&=c-1;           \
+  }                   \
+})
+
+static void decByMask(u64* mask, B* elts, ux ia, bool inv) {
+  u64 xor = inv? U64_MAX : 0;
+  ux e = ia>>6;
+  for (ux i=0; i<e; i++) BY_MASK(dec, elts + i*64,  xor^mask[i]);
+  if (ia&63)             BY_MASK(dec, elts + e*64, (xor^mask[e]) & ((1ULL<<(ia&63)) - 1));
+}
+static void incByMask(u64* mask, B* elts, ux ia, bool inv) {
+  u64 xor = inv? U64_MAX : 0;
+  ux e = ia>>6;
+  for (ux i=0; i<e; i++) BY_MASK(inc, elts + i*64,  xor^mask[i]);
+  if (ia&63)             BY_MASK(inc, elts + e*64, (xor^mask[e]) & ((1ULL<<(ia&63)) - 1));
+}
+#undef BY_MASK
+
+B ne_c2(B,B,B);
 B slash_ucw(B t, B o, B w, B x) {
   if (isAtm(w) || isAtm(x) || RNK(w)!=1 || RNK(x)!=1 || IA(w)!=IA(x)) {
     base:
     return def_fn_ucw(t, o, w, x);
   }
   usz ia = IA(x);
-  SGetU(w)
-  if (TI(w,elType) != el_bit) {
-    w = num_squeezeChk(w);
-    if (!elInt(TI(w,elType))) goto base;
+  u8 we = TI(w,elType);
+  if (we != el_bit) {
+    w = squeeze_numTry(w, &we, SQ_NUM);
+    if (we != el_bit) {
+      if (!elNum(we)) goto base;
+      i64 bounds[2];
+      if (!getRange_fns[we](tyany_ptr(w), bounds, IA(w)) || bounds[0]<0) {
+        usum(w);
+        thrOOM();
+      }
+    }
   }
   
   // (c ; C˙)¨⌾(w⊸/) x
   #if SINGELI_SIMD
-  if (isFun(o) && TY(o)==t_md1D) {
-    if (TI(w,elType) != el_bit) goto notConstEach; // TODO could do w↩w≠0 after range checking
+  if (MAY_F(isFun(o) && TY(o)==t_md1D)) {
     u8 xe = TI(x,elType);
-    if (xe==el_B) goto notConstEach;
     
     Md1D* od = c(Md1D,o);
     if (PRTID(od->m1) != n_each) goto notConstEach;
-    B f = od->f;
     B c;
-    if (!toConstant(f, &c)) goto notConstEach;
+    if (!toConstant(od->f, &c)) goto notConstEach;
+    
+    if (we != el_bit) {
+      // relies on compatible(c,c) always being true
+      w = C2(ne, w, m_f64(0));
+      assert(TI(w,elType)==el_bit);
+      we = el_bit;
+    }
     
     u8 ce = selfElType(c);
-    u8 re = el_or(ce,xe); // can be el_B
+    u8 re = el_or(ce,xe);
     
-    B r;
+    u64 sum = U64_MAX;
     if (isVal(c)) {
-      u64 sum = usum(w);
+      sum = bit_sum(bitany_ptr(w), ia);
       if (sum==0) decG(c); // TODO could return x; fills?
       else incByG(c, sum-1);
     }
     
-    void* rp;
-    void* xp;
-    if (re != xe) {
-      AnyArr a = cpyElTypeArr(re, x);
-      x = r = incG(a.b);
-      xp = rp = a.data;
-    } else {
-      AnyArr a = m_anyarrc(re, x);
-      r = a.b;
-      rp = a.data;
-      xp = tyany_ptr(x);
+    ConvArr r = toEltypeArrX(x, re);
+    assert((xe==el_B) == (r.refState!=0));
+    if (r.refState != 0) {
+      assert(re == el_B);
+      if (r.refState == 1) decByMask(bitany_ptr(w), r.xp, ia, 0);
+      else                 incByMask(bitany_ptr(w), r.xp, ia, 1);
     }
     
     u64 cv;
@@ -1115,75 +1125,119 @@ B slash_ucw(B t, B o, B w, B x) {
       cv = re==el_f64? r_f64u(o2fG(c)) : r_Bu(c);
     }
     
-    blendArrScalarFns[elwBitLog(re)](rp, xp, cv, bitany_ptr(w), IA(x));
+    blendArrScalarFns[elwBitLog(re)](r.rp, r.xp, cv, bitany_ptr(w), ia);
     NOGC_E;
     decG(w); decG(x);
-    return r;
+    return r.res;
   }
   #endif
   goto notConstEach; notConstEach:;
   
   B arg = C2(slash, incG(w), incG(x));
   usz argIA = IA(arg);
-  B rep = c1(o, arg);
+  B rep = c1(o, arg); // TODO special-case non-callable rep
   if (isAtm(rep) || RNK(rep)!=1 || IA(rep) != argIA) thrF("𝔽⌾(a⊸/)𝕩: 𝔽 must return an array with the same shape as its input (expected ⟨%s⟩, got %H)", argIA, rep);
   u8 re = el_or(TI(x,elType), TI(rep,elType));
-  MAKE_MUT_INIT(r, ia, re? re : 1);
-  usz repI = 0;
-  bool wb = TI(w,elType) == el_bit;
-  if (wb && re!=el_B) {
+  
+  if (MAY_F(we==el_bit)) {
+    bit_w:;
+    ConvArr r = toEltypeArrX(x, re);
+    ux ni = 0;
     u64* d = bitany_ptr(w);
-    void* rp = r->a;
     switch (re) { default: UD;
-      case el_bit:
-      case el_i8:  x = toI8Any(x);  rep = toI8Any(rep);  goto bit_u8;
-      case el_c8:  x = toC8Any(x);  rep = toC8Any(rep);  goto bit_u8;
-      case el_i16: x = toI16Any(x); rep = toI16Any(rep); goto bit_u16;
-      case el_c16: x = toC16Any(x); rep = toC16Any(rep); goto bit_u16;
-      case el_i32: x = toI32Any(x); rep = toI32Any(rep); goto bit_u32;
-      case el_c32: x = toC32Any(x); rep = toC32Any(rep); goto bit_u32;
-      case el_f64: x = toF64Any(x); rep = toF64Any(rep); goto bit_u64;
+      case el_i8:  rep = toI8Any(rep);  goto bit_u8;
+      case el_c8:  rep = toC8Any(rep);  goto bit_u8;
+      case el_i16: rep = toI16Any(rep); goto bit_u16;
+      case el_c16: rep = toC16Any(rep); goto bit_u16;
+      case el_i32: rep = toI32Any(rep); goto bit_u32;
+      case el_c32: rep = toC32Any(rep); goto bit_u32;
+      case el_f64: rep = toF64Any(rep); goto bit_u64;
+      case el_bit: {
+        // TODO BMI2 pext
+        void* np = bitany_ptr(rep);
+        NOUNROLL for (usz i = 0; i < ia; i++) {
+          bool v = bitp_get(d, i);
+          bitp_set(r.rp, i, bitp_get(v? np : r.xp, v? ni : i));
+          ni+= v;
+        }
+        goto done_v2;
+      }
+      case el_B: {
+        B* np = arr_bptr(rep);
+        if (np != NULL) {
+          if (r.refState == 1) {
+            NOUNROLL for (usz i = 0; i < ia; i++) {
+              bool v = bitp_get(d, i);
+              B xv = ((B*)r.xp)[i];
+              if (v) dec(xv);
+              ((B*)r.rp)[i] = v? inc(np[ni]) : xv;
+              ni+= v;
+            }
+          } else {
+            NOUNROLL for (usz i = 0; i < ia; i++) {
+              bool v = bitp_get(d, i);
+              ((B*)r.rp)[i] = inc(*(v? np+ni : ((B*)r.xp)+i));
+              ni+= v;
+            }
+          }
+        } else {
+          if (r.refState == 1) decByMask(bitany_ptr(w), r.xp, ia, 0);
+          else                 incByMask(bitany_ptr(w), r.xp, ia, 1);
+          SGet(rep)
+          NOUNROLL for (usz i = 0; i < ia; i++) {
+            bool v = bitp_get(d, i);
+            ((B*)r.rp)[i] = v? Get(rep,ni) : ((B*)r.xp)[i];
+            ni+= v;
+          }
+        }
+        NOGC_E;
+        goto done_v2;
+      }
     }
     
-    #define IMPL(T) do {          \
-      T* xp = tyany_ptr(x);       \
-      T* np = tyany_ptr(rep);     \
+    #define IMPL(T) do {         \
+      T* np = tyany_ptr(rep);    \
       NOUNROLL for (usz i = 0; i < ia; i++) { \
-        bool v = bitp_get(d, i);  \
-        ((T*)rp)[i] = *(v? np+repI : xp+i); \
-        repI+= v;                 \
-      }                           \
-      goto mut_dec_ret;           \
+        bool v = bitp_get(d, i); \
+        ((T*)r.rp)[i] = *(v? np+ni : ((T*)r.xp)+i); \
+        ni+= v;                  \
+      }                          \
+      goto done_v2;              \
     } while(0)
-    
     bit_u8:  IMPL(u8);
     bit_u16: IMPL(u16);
     bit_u32: IMPL(u32);
     bit_u64: IMPL(u64);
     #undef IMPL
     
+    done_v2:;
+    decG(rep); decG(w); decG(x);
+    return r.res;
   } else {
-    SGet(x) SGet(rep) MUTG_INIT(r);
-    if (wb) {
-      u64* d = bitany_ptr(w);
-      for (usz i = 0; i < ia; i++) mut_setG(r, i, bitp_get(d, i)? Get(rep,repI++) : Get(x,i));
-    } else {
-      SGetU(rep)
-      for (usz i = 0; i < ia; i++) {
-        i32 cw = o2iG(GetU(w, i));
-        if (cw) {
-          B cr = Get(rep,repI);
-          if (CHECK_VALID) for (i32 j = 1; j < cw; j++) if (!equal(GetU(rep,repI+j), cr)) { mut_pfree(r,i); thrM("𝔽⌾(a⊸/): Incompatible result elements"); }
-          mut_setG(r, i, cr);
-          repI+= cw;
-        } else mut_setG(r, i, Get(x,i));
+    ux wia = IA(w);
+    SGetU(w) SGetU(rep)
+    B w2 = C2(ne, incG(w), m_f64(0));
+    ux nz = bit_sum(bitany_ptr(w2), wia);
+    
+    ux ni = 0;
+    M_HARR(rp, nz)
+    for (ux i = 0; i < wia; i++) {
+      ux c = o2sG(GetU(w, i));
+      if (c != 0) {
+        B cr = GetU(rep, ni);
+        for (ux j = 1; j < c; j++) if (!compatible(GetU(rep,ni+j), cr)) thrM("𝔽⌾(a⊸/): Incompatible result elements");
+        HARR_ADDA(rp, inc(cr));
       }
+      ni+= c;
     }
+    assert(ni == IA(rep));
+    
+    decG(w);
+    w = w2;
+    decG(rep);
+    rep = toEltypeArr(HARR_FV(rp), re).obj;
+    goto bit_w;
   }
-  mut_dec_ret:;
-  decG(w); decG(rep);
-  B rb = mut_fcd(r, x);
-  return re==0? taga(cpyBitArr(rb)) : rb;
 }
 
 void slash_init(void) {

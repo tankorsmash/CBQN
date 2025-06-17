@@ -120,16 +120,21 @@ B parseFloat_c1(B t, B x) { thrM("•ParseFloat 𝕩: Not supported with Ryu dis
 B parseFloat_c1(B t, B x) {
   if (isAtm(x)) thrM("•ParseFloat 𝕩: Expected a character list argument");
   if (TI(x,elType)!=el_c8) {
-    x = chr_squeeze(x);
-    if (TI(x,elType)!=el_c8) thrM("•ParseFloat 𝕩: Expected a character list argument");
+    u8 xe;
+    x = squeeze_chrTry(x, &xe, SQ_BEST);
+    if (xe!=el_c8) {
+      if (IA(x)==0) goto empty;
+      if (elChr(xe)) malformed: thrM("•ParseFloat 𝕩: Malformed input");
+      thrM("•ParseFloat 𝕩: Expected a character list argument");
+    }
   }
   usz ia = IA(x);
   if (RNK(x)!=1) thrM("•ParseFloat 𝕩: Input must have rank 1");
-  if (ia==0) thrM("•ParseFloat 𝕩: Input was empty");
+  if (ia==0) empty: thrM("•ParseFloat 𝕩: Input was empty");
   if (ia >= (1<<20)) thrM("•ParseFloat 𝕩: Input too long"); // assumption by ryu_s2d_n
   u8* data = c8any_ptr(x);
   f64 res;
-  if (!ryu_s2d_n(data, ia, &res)) thrM("•ParseFloat 𝕩: Malformed input");
+  if (!ryu_s2d_n(data, ia, &res)) goto malformed;
   decG(x);
   return m_f64(res);
 }
@@ -796,12 +801,10 @@ B fchars_c2(B d, B w, B x) {
 }
 STATIC_GLOBAL NFnDesc* fBytesDesc;
 B fbytes_c1(B d, B x) {
-  I8Arr* tf = path_bytes(path_rel(nfn_objU(d), x, "•file.Bytes"));
-  usz ia = PIA(tf);
-  u8* rp; B r = m_c8arrv(&rp, ia);
-  COPY_TO(rp, el_i8, 0, taga(tf), 0, ia);
-  ptr_dec(tf);
-  return r;
+  TyArr* tf = path_bytes(path_rel(nfn_objU(d), x, "•file.Bytes"));
+  assert(tf->type == t_i8arr && reusable(taga(tf)));
+  tf->type = t_c8arr;
+  return taga(tf);
 }
 B fbytes_c2(B d, B w, B x) {
   if (isAtm(x) || RNK(x)!=1) thrM("𝕨 •file.Bytes 𝕩: 𝕩 must be a list");
@@ -1475,18 +1478,19 @@ static u8 typeOfCast(CastType t) {
 }
 static B set_bit_result(B r, u8 rt, ur rr, usz rl, usz *sh) {
   // Cast to output type
-  v(r)->type = IS_SLICE(v(r)->type) ? TO_SLICE(rt) : rt;
+  v(r)->type = ARR_IS_SLICE(v(r)->type) ? ARR_TO_SLICE(rt) : rt;
   // Adjust shape
   Arr* a = a(r);
   if (rr<=1) {
     a->ia = rl;
     a->sh = &a->ia;
   } else {
-    if (shObj(r)->refc>1) {
-      shObj(r)->refc--; // won't go to zero as refc>1; preparation for being overwritten by new shape
+    ShArr* old = shObj(r);
+    if (old->refc>1) {
       usz* rsh = a->sh = m_shArr(rr)->a;
       shcpy(rsh, sh, rr-1);
       sh = rsh;
+      ptr_decR(old); // shouldn't typically go to zero as refc>1 was just checked above, but can still happen if GC happens curing m_shArr; must be delayed to after m_shArr as sh==old->a for bitcast_impl
       SPRNK(a, rr);
     }
     sh[rr-1] = rl;
@@ -1507,19 +1511,47 @@ B bitcast_impl(B el0, B el1, B x) {
   if (rl>=USZ_MAX) thrM("•bit._cast: output too large");
   B r = convert(xct, x);
   u8 rt = typeOfCast(rct);
-  if (rt==t_bitarr && (v(r)->refc!=1 || IS_SLICE(TY(r)))) {
-    r = taga(copy(xct, r));
-  } else if (v(r)->refc!=1) {
-    B pr = r;
+  if (rt==t_bitarr) {
+    if (reusable(r) && !ARR_IS_SLICE(TY(r))) {
+      REUSE(r);
+    } else {
+      r = taga(copy(xct, r));
+    }
+  } else if (!reusable(r)) {
+    B r0 = incG(r);
     Arr* r2 = TI(r,slice)(r, 0, IA(r));
-    r = taga(arr_shSetI(r2, xr, shObj(pr))); // safe to use pr because r has refcount>1 and slice only consumes one, leaving some behind
+    r = taga(arr_shSetI(r2, xr, shObj(r0)));
+    decG(r0);
+    goto possibly_unaligned;
   } else {
+    REUSE(r);
     #if VERIFY_TAIL
       if (xct.s==1 && rct.s!=1) {
         FINISH_OVERALLOC(a(r), offsetof(TyArr,a)+IA(r)/8, offsetof(TyArr,a) + (BIT_N(IA(r))<<3));
       }
     #endif
+    goto possibly_unaligned;
   }
+  
+  if (0) {
+    possibly_unaligned:;
+    #if STRICT_ALIGN || FOR_BUILD
+    if (IS_TYSLICE(TY(r))) {
+      assert(rct.s != 1 && xct.s != 1); // rt==t_bitarr handles rct.s==1, and xct.s==1 never currently makes a slice (..though it could)
+      u8 arrt = SLICE_TO_ARR(TY(r));
+      void* r0p = tyslicev_ptr(a(r));
+      if (ptr2u64(r0p) & ((rct.s>>3) - 1)) {
+        Arr* r1;
+        void* r2p = m_tyarrp(&r1, xct.s>>3, IA(r), arrt);
+        memcpy(r2p, r0p, IA(r)*(xct.s>>3));
+        arr_shCopyUnchecked(r1, r);
+        decG(r);
+        r = taga(r1);
+      }
+    }
+    #endif
+  }
+  
   return set_bit_result(r, rt, xr, rl, sh);
 }
 
@@ -1572,12 +1604,12 @@ B bitop1(B f, B x, enum BitOp1 op, char* name) {
   u8 rt = typeOfCast((CastType){ rw, 0 });
   u64* xp = tyany_ptr(x);
   B r; u64* rp;
-  if (v(x)->refc!=1 || (rt==t_bitarr && IS_SLICE(TY(x)))) {
+  if (!reusable(x) || ARR_IS_SLICE(TY(x))) {
     Arr* ra = m_arr(offsetof(TyArr,a) + (n+7)/8, rt, n>>rws);
     arr_shCopyUnchecked(ra, x);
     r = taga(ra); rp = tyany_ptr(r);
   } else {
-    r = incG(x); rp = xp;
+    r = incG(REUSE(x)); rp = xp;
   }
   switch (op) { default: UD;
     case op_not: {
@@ -1985,8 +2017,13 @@ u32* const dsv_text[] = {
   U"•file.Accessed",U"•file.At",U"•file.Bytes",U"•file.Chars",U"•file.Created",U"•file.CreateDir",U"•file.Exists",U"•file.Lines",U"•file.List",
   U"•file.MapBytes",U"•file.Modified",U"•file.Name",U"•file.Parent",U"•file.path",U"•file.RealPath",U"•file.Remove",U"•file.Rename",U"•file.Size",U"•file.Type",
   
-  U"•internal.ClearRefs",U"•internal.DeepSqueeze",U"•internal.EEqual",U"•internal.ElType",U"•internal.GC",U"•internal.HasFill",U"•internal.HeapDump",U"•internal.HeapStats",U"•internal.Info",U"•internal.IsPure",U"•internal.Keep",U"•internal.ListVariations",U"•internal.ObjFlags",U"•internal.PureKeep",U"•internal.Refc",U"•internal.Squeeze",U"•internal.Temp",U"•internal.Type",U"•internal.Unshare",U"•internal.Variation",
-  U"•math.Acos",U"•math.Acosh",U"•math.Asin",U"•math.Asinh",U"•math.Atan",U"•math.Atan2",U"•math.Atanh",U"•math.Cbrt",U"•math.Comb",U"•math.Cos",U"•math.Cosh",U"•math.Erf",U"•math.ErfC",U"•math.Expm1",U"•math.Fact",U"•math.GCD",U"•math.Hypot",U"•math.LCM",U"•math.Log10",U"•math.Log1p",U"•math.Log2",U"•math.LogFact",U"•math.Sin",U"•math.Sinh",U"•math.Sum",U"•math.Tan",U"•math.Tanh",
+  U"•internal.ClearRefs",U"•internal.DeepSqueeze",U"•internal.EEqual",U"•internal.ElType",U"•internal.GC",U"•internal.HasFill",U"•internal.HeapDump",
+  U"•internal.HeapStats",U"•internal.Indistinguishable",U"•internal.Info",U"•internal.IsPure",U"•internal.Keep",U"•internal.ListVariations",U"•internal.ObjFlags",
+  U"•internal.PureKeep",U"•internal.Refc",U"•internal.Squeeze",U"•internal.Temp",U"•internal.Type",U"•internal.Unshare",U"•internal.Validate",U"•internal.Variation",
+  
+  U"•math.Acos",U"•math.Acosh",U"•math.Asin",U"•math.Asinh",U"•math.Atan",U"•math.Atan2",U"•math.Atanh",U"•math.Cbrt",U"•math.Comb",U"•math.Cos",U"•math.Cosh",
+  U"•math.Erf",U"•math.ErfC",U"•math.Expm1",U"•math.Fact",U"•math.GCD",U"•math.Hypot",U"•math.LCM",U"•math.Log10",U"•math.Log1p",U"•math.Log2",U"•math.LogFact",
+  U"•math.Sin",U"•math.Sinh",U"•math.Sum",U"•math.Tan",U"•math.Tanh",
   
   U"•ns.Get",U"•ns.Has",U"•ns.Keys",
   U"•platform.bqn.impl",U"•platform.bqn.implVersion",U"•platform.cpu.arch",U"•platform.environment",U"•platform.os",

@@ -39,10 +39,10 @@ static Arr* m_fillslice(Arr* p, B* ptr, usz ia, B fill) {
 static Arr* fillarr_slice  (B x, usz s, usz ia) { FillArr*   a=c(FillArr  ,x); return m_fillslice((Arr*)a,       a->a+s, ia, inc(a->fill)); }
 static Arr* fillslice_slice(B x, usz s, usz ia) { FillSlice* a=c(FillSlice,x); Arr* r=m_fillslice(ptr_inc(a->p), a->a+s, ia, inc(a->fill)); decG(x); return r; }
 
-static B fillarr_get   (Arr* x, usz n) { assert(PTY(x)==t_fillarr  ); return inc(((FillArr*  )x)->a[n]); }
-static B fillslice_get (Arr* x, usz n) { assert(PTY(x)==t_fillslice); return inc(((FillSlice*)x)->a[n]); }
-static B fillarr_getU  (Arr* x, usz n) { assert(PTY(x)==t_fillarr  ); return     ((FillArr*  )x)->a[n] ; }
-static B fillslice_getU(Arr* x, usz n) { assert(PTY(x)==t_fillslice); return     ((FillSlice*)x)->a[n] ; }
+static B fillarr_get   (Arr* x, usz n) { assert(PTY(x)==t_fillarr   && n<PIA(x)); return inc(((FillArr*  )x)->a[n]); }
+static B fillslice_get (Arr* x, usz n) { assert(PTY(x)==t_fillslice && n<PIA(x)); return inc(((FillSlice*)x)->a[n]); }
+static B fillarr_getU  (Arr* x, usz n) { assert(PTY(x)==t_fillarr   && n<PIA(x)); return     ((FillArr*  )x)->a[n] ; }
+static B fillslice_getU(Arr* x, usz n) { assert(PTY(x)==t_fillslice && n<PIA(x)); return     ((FillSlice*)x)->a[n] ; }
 DEF_FREE(fillarr) {
   decSh(x);
   B* p = ((FillArr*)x)->a;
@@ -109,15 +109,13 @@ NOINLINE bool fillEqualF(B w, B x) { // doesn't consume; both args must be array
 
 B withFill(B x, B fill) { // consumes both
   assert(isArr(x));
-  #if DEBUG
-  validateFill(fill);
-  #endif
+  if (DEBUG) validateFill(fill);
   u8 xt = TY(x);
   if (noFill(fill) && xt!=t_fillarr && xt!=t_fillslice) return x;
   switch(xt) {
     case t_f64arr: case t_f64slice: case t_bitarr:
-    case t_i32arr: case t_i32slice: case t_i16arr: case t_i16slice: case t_i8arr: case t_i8slice: if(fill.u == m_i32(0  ).u) return x; break;
-    case t_c32arr: case t_c32slice: case t_c16arr: case t_c16slice: case t_c8arr: case t_c8slice: if(fill.u == m_c32(' ').u) return x; break;
+    case t_i32arr: case t_i32slice: case t_i16arr: case t_i16slice: case t_i8arr: case t_i8slice: if(numFill(fill)) return x; break;
+    case t_c32arr: case t_c32slice: case t_c16arr: case t_c16slice: case t_c8arr: case t_c8slice: if(chrFill(fill)) return x; break;
     case t_fillslice: if (fillEqual(c(FillSlice,x)->fill, fill)) { dec(fill); return x; } break;
     case t_fillarr:   if (fillEqual(c(FillArr,  x)->fill, fill)) { dec(fill); return x; }
       if (reusable(x)) { // keeping flags is fine probably
@@ -129,21 +127,20 @@ B withFill(B x, B fill) { // consumes both
   }
   usz ia = IA(x);
   if (!FL_HAS(x,fl_squoze)) {
-    if (isNum(fill)) {
-      x = num_squeeze(x);
-      if (elNum(TI(x,elType))) return x;
-      FL_KEEP(x, ~fl_squoze);
-    } else if (isC32(fill)) {
-      x = chr_squeeze(x);
-      if (elChr(TI(x,elType))) return x;
-      FL_KEEP(x, ~fl_squoze);
+    u8 xe;
+    if (numFill(fill)) {
+      x = squeeze_numTry(x, &xe, SQ_ANY);
+      if (elNum(xe)) return x;
+    } else if (chrFill(fill)) {
+      x = squeeze_chrTry(x, &xe, SQ_ANY);
+      if (elChr(xe)) return x;
     }
   }
   Arr* r;
   B* xbp = arr_bptr(x);
   if (xbp!=NULL) {
     Arr* xa = a(x);
-    if (IS_SLICE(PTY(xa))) xa = ptr_inc(((Slice*)xa)->p);
+    if (ARR_IS_SLICE(PTY(xa))) xa = ptr_inc(((Slice*)xa)->p);
     else ptr_inc(xa);
     r = m_fillslice(xa, xbp, ia, fill);
   } else {
@@ -205,32 +202,55 @@ FORCE_INLINE B m_oneItemArr(B x, ur rr) {
 NOINLINE B m_unit(B x) { return m_oneItemArr(x, 0); }
 NOINLINE B m_vec1(B x) { return m_oneItemArr(x, 1); }
 
+Arr* emptyVec(B x) {
+  assert(isArr(x));
+  u8 xe = TI(x,elType);
+  if (elNum(xe)) num: return a(emptyIVec());
+  if (elChr(xe)) chr: return a(emptyCVec());
+  assert(xe == el_B);
+  B xf = getFillR(x);
+  if (numFill(xf)) goto num;
+  if (chrFill(xf)) goto chr;
+  if ( noFill(xf)) return a(emptyHVec());
+  return arr_shVec(m_fillarrpEmpty(xf));
+}
 
 NOINLINE Arr* emptyArr(B x, ur xr) {
+  assert(isArr(x) && xr>=1);
+  if (xr==1) return emptyVec(x);
   B xf = getFillR(x);
-  if (xr==1) {
-    if (isF64(xf)) return a(emptyIVec());
-    if (noFill(xf)) return a(emptyHVec());
-    if (isC32(xf)) return a(emptyCVec());
-  }
   Arr* r;
-  if      (isF64(xf))  { u64* rp; r = m_bitarrp(&rp, 0); }
-  else if (noFill(xf)) { r = (Arr*) m_harrUp(0).c; }
-  else if (isC32(xf))  { u8*  rp; r = m_c8arrp(&rp, 0); }
-  else                 { r = m_fillarrpEmpty(xf); }
-  if (xr<=1) arr_rnk01(r, xr);
+  if      (numFill(xf)) { u64* rp; r = m_bitarrp(&rp, 0); }
+  else if (chrFill(xf)) { u8*  rp; r = m_c8arrp(&rp, 0); }
+  else { r = m_barrp_withFill(0, xf).obj; }
   return r;
 }
 
 NOINLINE Arr* emptyWithFill(B fill) {
   u8 type;
-  if (r_Bf(fill) == 0) { type = t_bitarr; goto tyarr; }
-  if (isC32(fill)) { type = t_c8arr; goto tyarr; }
-  if (noFill(fill)) return (Arr*) m_harrUp(0).c;
-  return m_fillarrpEmpty(fill);
+  if (numFill(fill)) { type = t_bitarr; goto tyarr; }
+  if (chrFill(fill)) { type = t_c8arr; goto tyarr; }
+  return m_barrp_withFill(0, fill).obj;
   
   tyarr:;
   Arr* r;
   m_tyarrp(&r, 0, 0, type);
+  return r;
+}
+
+NOINLINE B emptyNumsWithShape(B x) {
+  assert(IA(x)==0);
+  if (RNK(x)==1) { decG(x); return emptyIVec(); }
+  u64* tmp;
+  B r = m_bitarrc(&tmp, x);
+  decG(x);
+  return r;
+}
+NOINLINE B emptyChrsWithShape(B x) {
+  assert(IA(x)==0);
+  if (RNK(x)==1) { decG(x); return emptyCVec(); }
+  u8* tmp;
+  B r = m_c8arrc(&tmp, x);
+  decG(x);
   return r;
 }

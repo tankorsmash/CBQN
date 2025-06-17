@@ -1,17 +1,12 @@
 include './base'
 include './vecfold'
 
-if_inline (hasarch{'SSE2'}) {
-  fn sum_vec{T}(v:T) = vfold{+, fold{+, mzip128{v, T**0}}}
-  def fold_addw{v:T=[_]E if E<=u32} = sum_vec{T}(v)
-}
-
 def inc{ptr:*T, ind, v} = store{ptr, ind, trunc{T,v} + load{ptr, ind}}
 def inc{ptr, ind} = inc{ptr, ind, 1}
 
 # Write counts (2⋆15)|/⁼x to tab, overflows to ov, and return ⌈´x
 fn count{T if T<=i16}(tab:*u16, ov:*u16, xp:*void, n:u64, min_allowed:T) : T = {
-  def vbits = arch_defvw
+  def vbits = arch_defvw{}
   def vec = vbits/width{T}
   def TU = ty_u{T}
   def V = [vec]T
@@ -44,17 +39,17 @@ fn count{T if T<=i16}(tab:*u16, ov:*u16, xp:*void, n:u64, min_allowed:T) : T = {
     }
     # Now start analysis
     @for (xv, xp in *V~~(x-1) over _ from a to b) {
-      jv = min{jv, xv}; mv = max{mv, xv}
+      jv = __min{jv, xv}; mv = __max{mv, xv}
       dc -= xp != xv
     }
     @for (x over _ from rv to r) { if (x<min_allowed) return{x}; if (x>mx) mx=x }
-    jt := vfold{min, jv}
-    mt := vfold{max, mv}
+    jt := vfold{__min, jv}
+    mt := vfold{__max, mv}
     if (jt < min_allowed) return{jt}
     if (mt > mx) mx = mt
 
     # Fast cases
-    dt := promote{u64, fold_addw{dc}}
+    dt := fold_addw{u64, dc}
     nc := TU~~(mt - jt)  # Number of counts to perform: last is implicit
     if (dt < b * (vec/2) and (b + dt)*4 < b * promote{u64,nc}) {
       r0 = count_with_runs{x, tab, r}
@@ -82,13 +77,13 @@ fn count{T if T<=i16}(tab:*u16, ov:*u16, xp:*void, n:u64, min_allowed:T) : T = {
 }
 
 fn flush_counts(tab:*u16, ov:*u16, n:usz) : usz = {
-  def vl = arch_defvw/16
+  def vl = arch_defvw{}/16
   def V = [vl]u16
-  def bot = 1<<15 - 1
+  def bot = tail{15}
   on:usz = 0
   @for (t in *V~~tab over jv to cdiv{n, vl}) if (rare{any_top{t}}) {
     o := if (hasarch{'X86_64'}) top_to_int{t} else hom_to_int{t > V**bot}
-    if (jv == n/vl) o &= type{o}~~1<<(n%vl) - 1
+    if (jv == n/vl) o &= tail{type{o}, n%vl}
     while (o > 0) {
       jv := jv*vl + cast_i{usz, ctz{o}}
       store{tab, jv, load{tab, jv} & bot}
@@ -108,7 +103,7 @@ def count_by_sum{T, V, U, xv, b, tab, r0, j0, m} = {
     e := each{{j}=>V**j, j}
     @for (xv over b) each{{c,e} => c -= xv == e, c, e}
     def add_sum{c, j} = {
-      s := promote{usz, fold_addw{c}}
+      s := fold_addw{usz, c}
       total -= s; inc{tab, j, s}
     }
     each{add_sum, c, j}
@@ -152,7 +147,7 @@ def count_adapt_runs{x0, tab, n} = {
   }
 }
 def mark_run_ends{x:*T, m:(ux)} = {
-  def vec = arch_defvw/width{T}
+  def vec = arch_defvw{}/width{T}
   def V = [vec]T
   @unroll (j to width{ux} / vec) {
     def jv = j*vec
@@ -180,7 +175,7 @@ fn count_i32_i32(tab:*i32, x:*i32, n:usz) : void = count_adapt_runs{x, tab, n}
 # ov is sorted but may not be unique, and oc contains multiples of 128
 # Return the shared length of ov and oc
 fn count_sorted{T}(r:*u8, ov:*usz, oc:*usz, x:*T, n:usz) : usz = {
-  def V = [arch_defvw/width{T}]T
+  def V = [arch_defvw{}/width{T}]T
   def block = 128
   i:usz = 0
   on:usz = 0
@@ -196,7 +191,7 @@ fn count_sorted{T}(r:*u8, ov:*usz, oc:*usz, x:*T, n:usz) : usz = {
       d:usz = block
       d2 := undefined{usz}
       while ((d2=d+d) <= rem and bxi{d2}) d = d2
-      l := min{(rem &~ (block-1)) - d, d}
+      l := __min{(rem &~ (block-1)) - d, d}
       # Target is in [d,d+l); shrink l
       while (l > block) {
         h := (l/2) &~ (block-1)
@@ -209,7 +204,7 @@ fn count_sorted{T}(r:*u8, ov:*usz, oc:*usz, x:*T, n:usz) : usz = {
       i += d; xo += d; xi = load{xo}
     }
     # Count the next block normally
-    rem = min{rem, usz~~block} # TODO get rid of the need of the usz~~ here
+    rem = __min{rem, usz~~block} # TODO get rid of the need of the usz~~ here
     count_adapt_runs{xo, r, rem}
     rxi := load{r, xi}
     if (rxi >= block) {

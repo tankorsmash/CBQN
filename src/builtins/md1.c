@@ -9,7 +9,7 @@
 static NOINLINE B homFil1(B f, B r, B xf) {
   assert(EACH_FILLS);
   if (isPureFn(f)) {
-    if (f.u==bi_eq.u || f.u==bi_ne.u || f.u==bi_feq.u) { dec(xf); return num_squeeze(r); }
+    if (f.u==bi_eq.u || f.u==bi_ne.u || f.u==bi_feq.u) { dec(xf); return squeeze_numNew(r); }
     if (f.u==bi_fne.u) { dec(xf); return withFill(r, emptyHVec()); }
     if (!noFill(xf)) {
       if (CATCH) { freeThrown(); return r; }
@@ -24,7 +24,7 @@ static NOINLINE B homFil1(B f, B r, B xf) {
 static NOINLINE B homFil2(B f, B r, B wf, B xf) {
   assert(EACH_FILLS);
   if (isPureFn(f)) {
-    if (f.u==bi_feq.u || f.u==bi_fne.u) { dec(wf); dec(xf); return num_squeeze(r); }
+    if (f.u==bi_feq.u || f.u==bi_fne.u) { dec(wf); dec(xf); return squeeze_numNew(r); }
     if (!noFill(wf) && !noFill(xf)) {
       if (CATCH) { freeThrown(); return r; }
       B rf = asFill(c2(f, wf, xf));
@@ -45,7 +45,7 @@ B each_c1(Md1D* d, B x) { B f = d->f;
     u8 rtid = RTID(f);
     if (rtid==n_ltack || rtid==n_rtack) {
       if (EACH_FILLS) dec(xf);
-      return TI(x,arrD1) || IA(x)==0? x : any_squeeze(EACH_FILLS? x : withFill(x, bi_noFill));
+      return TI(x,arrD1) || IA(x)==0? x : squeeze_any(EACH_FILLS? x : withFill(x, bi_noFill));
     }
     r = eachm_fn(f, x, c(Fun,f)->c1);
   } else {
@@ -64,6 +64,12 @@ B tbl_c1(Md1D* d, B x) {
 
 B slash_c2(B t, B w, B x);
 B shape_c2(B t, B w, B x);
+Arr* reshape_cycle(usz nia, usz xia, B x); // from sfns.c
+static B replicate_by(usz rep, usz xia, B x) {
+  incG(x);
+  if (RNK(x) != 1) x = taga(arr_shVec(TI(x,slice)(x, 0, xia)));
+  return C2(slash, m_usz(rep), x);
+}
 B tbl_c2(Md1D* d, B w, B x) { B f = d->f;
   if (isAtm(w)) w = m_unit(w);
   if (isAtm(x)) x = m_unit(x);
@@ -76,35 +82,48 @@ B tbl_c2(Md1D* d, B w, B x) { B f = d->f;
   usz* rsh;
   
   FC2 fc2 = c2fn(f);
+  Arr* ra_nosh;
   if (RARE(!isFun(f))) {
     if (isMd(f) && ria>0) thrM("Calling a modifier");
-    MAKE_MUT(rm, ria);
-    mut_fill(rm, 0, f, ria);
-    Arr* ra = mut_fp(rm);
-    rsh = arr_shAlloc(ra, rr);
-    r = taga(ra);
+    ra_nosh = reshape_one(ria, f);
+    goto nosh;
   } else if (RTID(f) == n_ltack) {
-    Arr* wd = arr_shVec(TI(w,slice)(incG(w), 0, wia));
-    r = C2(slash, m_i32(xia), taga(wd));
+    w = squeeze_any(w);
+    r = replicate_by(xia, wia, w);
     goto arith_finish;
   } else if (RTID(f) == n_rtack) {
-    r = C2(shape, m_f64(ria), incG(x));
-    goto arith_finish;
-  } else if (TI(w,arrD1) && isPervasiveDyExt(f)) {
-    if (TI(x,arrD1) && wia>=4 && xia<2560>>arrTypeBitsLog(TY(x))) {
-      Arr* wd = arr_shVec(TI(w,slice)(incG(w), 0, wia));
-      r = fc2(f, C2(slash, m_i32(xia), taga(wd)), C2(shape, m_f64(ria), incG(x)));
+    x = squeeze_any(x);
+    ux xia = IA(x);
+    if (ria<=xia) ra_nosh = TI(x,slice)(incG(x), 0, ria); // ria==0 or ria==xia; necessary as reshape_cycle doesn't handle those
+    else ra_nosh = reshape_cycle(ria, xia, incG(x));
+    goto nosh;
+  } else if (isPervasiveDyExt(f)) {
+    if (ria == 0) goto arith_empty;
+    if (!TI(w,arrD1)) goto generic;
+    if (TI(x,arrD1) && wia>=3 && xia<2560>>arrTypeBitsLog(TY(x))) { // arrD1 checks imply that squeeze won't change fill (and the arith call will squeeze anyway)
+      B expW, expX;
+      if (0) {
+        arith_empty:;
+        expW = taga(emptyVec(w));
+        expX = taga(emptyVec(x));
+      } else {
+        assert(wia>1); // implies ria > xia, a requirement of reshape_cycle
+        expW = replicate_by(xia, wia, w);
+        expX = taga(arr_shVec(reshape_cycle(ria, xia, incG(x))));
+      }
+      r = fc2(f, expW, expX);
       arith_finish:;
-      if(RARE(!reusable(r))) r = taga(cpyWithShape(r));
-      arr_shErase(a(r), 1);
-    } else if (xia>7 && wia>0) {
+      ra_nosh = RARE(!reusable(r))? cpyWithShape(r) : a(r);
+      arr_shErase(ra_nosh, 1);
+      goto nosh;
+    } else if (xia>3) {
       SGet(w)
       M_APD_TOT(rm, ria)
       incByG(x, wia);
-      for (usz wi = 0; wi < wia; wi++) APDD(rm, fc2(f, Get(w,wi), x));
-      r = taga(arr_shVec(APD_TOT_GET(rm)));
+      for (usz wi = 0; wi < wia; wi++) APDD(rm, fc2(f, Get(w,wi), x)); // arith call will squeeze
+      ra_nosh = APD_TOT_GET(rm);
+      goto nosh;
     } else goto generic;
-    rsh = arr_shAlloc(a(r), rr);
   } else {
     generic:;
     SGetU(w) SGet(x)
@@ -115,8 +134,14 @@ B tbl_c2(Md1D* d, B w, B x) { B f = d->f;
       for (usz xi = 0; xi < xia; xi++) HARR_ADDA(r, fc2(f, cw, Get(x,xi)));
     }
     rsh = HARR_FA(r, rr);
-    r = HARR_O(r).b;
+    r = squeeze_any(HARR_O(r).b);
   }
+  if (0) {
+    nosh:
+    rsh = arr_shAlloc(ra_nosh, rr);
+    r = taga(ra_nosh);
+  }
+  
   if (rsh) {
     shcpy(rsh   , SH(w), wr);
     shcpy(rsh+wr, SH(x), xr);

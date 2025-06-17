@@ -4,7 +4,7 @@ include './f64'
 include './bitops'
 include './mask'
 
-def rootty{T if isprim{T}} = T
+def rootty{T if primt{T}} = T
 def rootty{[_]T} = T
 
 def is_s{X} = issigned{rootty{X}}
@@ -18,10 +18,12 @@ def bqn_or{a, b} = (a+b)-(a*b)
 
 
 # + & -
-def arithChk1{(__add), M, w:T, x:T, r:T} = tup{'any_top', M{(w^r) & (x^r)}}
-def arithChk1{(__sub), M, w:T, x:T, r:T} = tup{'any_top', M{(w^x) & (w^r)}}
-def arithChk1{(__add), M, w:T=[_]E, x:T, r:T if not hasarch{'X86_64'} or width{E}<=16} = tup{'anyne', adds{w,x}, r}
-def arithChk1{(__sub), M, w:T=[_]E, x:T, r:T if not hasarch{'X86_64'} or width{E}<=16} = tup{'anyne', subs{w,x}, r}
+# def arithChk1{(__add), M, w:T, x:T, r:T} = tup{'any_top', M{(w^r) & (x^r)}}
+# def arithChk1{(__sub), M, w:T, x:T, r:T} = tup{'any_top', M{(w^x) & (w^r)}}
+def arithChk1{(__add), M, w:T=[_]E, x:T, r:T} = tup{'anyne', __adds{w,x}, r}
+def arithChk1{(__sub), M, w:T=[_]E, x:T, r:T} = tup{'anyne', __subs{w,x}, r}
+def arithChk1{(__add), M, w:T, x:T, r:T if hasarch{'X86_64'} and width{T}<=256} = tup{'any_top', M{ty_s{w>r} ^ x}}
+def arithChk1{(__sub), M, w:T, x:T, r:T if hasarch{'X86_64'} and width{T}<=256} = tup{'any_top', M{ty_s{x>w} ^ r}}
 
 
 
@@ -37,11 +39,11 @@ def arithChk2{F==__mul, M, w:T=[_](i8), x:T if hasarch{'X86_64'}} = {
   def rp = each{__mul, wp, xp}
   if (M{0}) { # masked check
     def bad = each{{v} => ty_s{(v<<8)>>8 != v}, rp}
-    tup{packQ{rp}, tup{'any_hom', M{packQ{bad}}}}
+    tup{packs128{rp}, tup{'any_hom', M{packs128{bad}}}}
   } else { # unmasked check; can do check in a simpler way
     def bad = each{{v} => ty_s{v ^ (v>>15)}, rp}
     def RU = re_el{u16,T}
-    tup{packQ{rp}, tup{'and_some', RU~~tree_fold{|, bad}, RU**0xff80}}
+    tup{packs128{rp}, tup{'and_some', RU~~tree_fold{|, bad}, RU**0xff80}}
   }
 }
 def arithChk2{F==__mul, M, w:T=[_](i16), x:T if hasarch{'X86_64'}} = {
@@ -51,9 +53,8 @@ def arithChk2{F==__mul, M, w:T=[_](i16), x:T if hasarch{'X86_64'}} = {
 }
 def arithChk2{F==__mul, M, w:T=[_](i32), x:T if hasarch{'X86_64'}} = {
   max:= re_el{f32, (ty_u{T})**0x4efffffe}
-  def cf32{x:X} = emit{re_el{f32,X}, tern{T==[8]i32, '_mm256_cvtepi32_ps', '_mm_cvtepi32_ps'}, x}
-  f32mul:= cf32{w} * cf32{x}
-  tup{w*x, tup{'any_hom', M{abs{f32mul} >= max}}}
+  f32mul:= cvt{f32,w} * cvt{f32,x}
+  tup{w*x, tup{'any_hom', M{__abs{f32mul} >= max}}}
   # TODO fallback to the below if the above fails
   # TODO don't do this, but instead shuffle one half, do math, unshuffle that half
   # def wp = mzip128{w, T**0}
@@ -140,7 +141,7 @@ def arithAAimpl{vw, mode, F, W, X, R, w, x, r, len} = {
       sr{each{&, cw, cx}}
     }
   } else {
-    def bulk = vw / max{max{width{W}, width{X}}, width{R}}
+    def bulk = vw / __max{__max{width{W}, width{X}}, width{R}}
     def overflow = tern{mode==1, {i}=>return{i}, tern{mode==2, {i}=>return{1}, 0}}
     def TY = [bulk]R
     
@@ -163,7 +164,7 @@ fn arithAAu{vw, mode, F, W, X, R}(r:*void, w:*void, x:*void, len:u64) : void = {
 }
 
 def arithAA{mode, F, W, X, R} = {
-  def vw = arch_defvw
+  def vw = arch_defvw{}
   if (mode==1 or mode==2) arithAAc{vw, mode, F, W, X, R}
   else arithAAu{vw, mode, F, W, X, R}
 }
@@ -172,7 +173,7 @@ def arithAA{mode, F, W, X, R} = {
 fn arithSAf{vw, mode, F, swap, W, X, R}(r:*void, w:u64, x:*void, len:u64) : u64 = {
   # show{F, swap, mode, W, X, R}
   assert{len>0}
-  def bulk = vw / max{width{W}, width{R}}
+  def bulk = vw / __max{width{W}, width{R}}
   def TY = [bulk]R
   def overflow = tern{mode==1, {i}=>return{1}, {i}=>return{i}}
   
@@ -191,7 +192,7 @@ fn arithSAf{vw, mode, F, swap, W, X, R}(r:*void, w:u64, x:*void, len:u64) : u64 
   else len
 }
 
-def arithSA{mode, F, swap, W, X, R} = arithSAf{arch_defvw, mode, F, swap, W, X, R}
+def arithSA{mode, F, swap, W, X, R} = arithSAf{arch_defvw{}, mode, F, swap, W, X, R}
 
 fn andBytes{vw}(r: *u8, x: *u8, maskU64:u64, len:u64) : void = {
   assert{vw>=64}
@@ -202,6 +203,6 @@ fn andBytes{vw}(r: *u8, x: *u8, maskU64:u64, len:u64) : void = {
   @for_masked{bulk}(sr in tup{'g',r}, cx in tup{T8,x} over len) sr{cx & maskFull}
 }
 
-export{'simd_andBytes', andBytes{arch_defvw}}
+export{'simd_andBytes', andBytes{arch_defvw{}}}
 export{'orSAc_f64_f64_f64', arithSA{2,bqn_or,0,f64,f64,f64}}
 include 'gen/arDefs'

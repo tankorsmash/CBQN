@@ -116,7 +116,7 @@ B sum_c1(B t, B x) {
   if (ia==0) { decG(x); return m_f64(0); }
   u8 xe = TI(x,elType);
   if (!elNum(xe)) {
-    x = any_squeeze(x); xe = TI(x,elType);
+    x = squeeze_any(x); xe = TI(x,elType);
     if (!elNum(xe)) thrF("•math.Sum 𝕩: 𝕩 elements must be numbers", x);
   }
   f64 r;
@@ -208,7 +208,7 @@ B fold_c1(Md1D* d, B x) { B f = d->f;
       thrM("𝔽´𝕩: Identity not found");
     }
   }
-  if (RARE(!isFun(f))) { decG(x); if (isMd(f)) thrM("Calling a modifier"); return inc(f); }
+  if (RARE(!isFun(f))) { decG(x); return inc(errMd(f)); }
   u8 xe = TI(x,elType);
   if (RTID(f) != RTID_NONE) {
     u8 rtid = RTID(f);
@@ -279,7 +279,7 @@ B fold_c2(Md1D* d, B w, B x) { B f = d->f;
   if (isAtm(x) || RNK(x)!=1) thrF("𝕨𝔽´𝕩: 𝕩 must be a list (%H ≡ ≢𝕩)", x);
   usz ia = IA(x);
   if (RARE(ia==0)) { decG(x); return w; }
-  if (RARE(!isFun(f))) { dec(w); decG(x); if (isMd(f)) thrM("Calling a modifier"); return inc(f); }
+  if (RARE(!isFun(f))) { dec(w); decG(x); return inc(errMd(f)); }
   
   u8 xe = TI(x,elType);
   if (RTID(f) != RTID_NONE) {
@@ -367,7 +367,6 @@ u64 usum(B x) { // doesn't consume; will error on non-integers, or elements <0, 
       f64 c = p[i];
       if (!q_fu64(c)) expU_f64(c);
       u64 ci = (u64)c;
-      if (ci<0) goto neg;
       if (addOn(r,ci)) goto overflow;
     }
   } else {
@@ -416,7 +415,7 @@ static B insert_scal(B f, FC2 fc2, B x, bool has_w, B fxw, usz xia, ur rr) {
   B rf;
   if (has_w) {
     // fxw is (⊢˝𝕩)𝔽𝕨 so shape errors have been caught
-    rf = getFillR(fxw);
+    rf = noFill(xf)? bi_noFill : getFillR(fxw);
     COPY_TO(r.a, el_B, 0, fxw, 0, csz);
     decG(fxw);
   } else {
@@ -443,6 +442,7 @@ static B insert_scal(B f, FC2 fc2, B x, bool has_w, B fxw, usz xia, ur rr) {
       if (!has_w) rf = fc2(f, inc(xf), rf);
       if (n%2 == !has_w) rf = fc2(f, inc(xf), rf);
       else fc2(f, inc(xf), inc(rf)); // could error, -˜˝"abc"
+      rf = asFill(rf);
       popCatch();
     }
     #else
@@ -450,7 +450,7 @@ static B insert_scal(B f, FC2 fc2, B x, bool has_w, B fxw, usz xia, ur rr) {
     #endif
   }
   decG(x);
-  return withFill(r.b, rf);
+  return noFill(rf)? squeeze_any(r.b) : withFill(r.b, rf);
 }
 
 B insert_c1(Md1D* d, B x) { B f = d->f;
@@ -477,7 +477,7 @@ B insert_c1(Md1D* d, B x) { B f = d->f;
     thrM("𝔽˝𝕩: Identity not found");
   }
   if (len==1) return C1(select, x);
-  if (RARE(!isFun(f))) { decG(x); if (isMd(f)) thrM("Calling a modifier"); return inc(f); }
+  if (RARE(!isFun(f))) { decG(x); return inc(errMd(f)); }
   if (isPervasiveDyExt(f)) {
     if (xr==1) return m_unit(fold_c1(d, x));
     usz xia = IA(x);
@@ -491,7 +491,7 @@ B insert_c1(Md1D* d, B x) { B f = d->f;
       }
       return r;
     }
-    if (len>2 && xia<6*(u64)len) {
+    if (len>2 && HEURISTIC(xia<6*(u64)len)) {
       return insert_scal(f, c2fn(f), x, 0, m_f64(0), xia, xr-1);
     }
   }
@@ -521,7 +521,7 @@ B insert_c2(Md1D* d, B w, B x) { B f = d->f;
   if (isAtm(x) || (xr=RNK(x))==0) thrM("𝕨˝𝕩: 𝕩 must have rank at least 1");
   usz len = *SH(x);
   if (len==0) { decG(x); return w; }
-  if (RARE(!isFun(f))) { dec(w); decG(x); if (isMd(f)) thrM("Calling a modifier"); return inc(f); }
+  if (RARE(!isFun(f))) { dec(w); decG(x); return inc(errMd(f)); }
   if (isPervasiveDyExt(f)) {
     usz xia = IA(x);
     ur rr = xr - 1;
@@ -545,7 +545,7 @@ B insert_c2(Md1D* d, B w, B x) { B f = d->f;
       }
       return r;
     }
-    if (len>2 && xia<6*(u64)len && !(isArr(w) && RNK(w)>rr)) {
+    if (len>2 && HEURISTIC(xia<6*(u64)len) && !(isArr(w) && RNK(w)>rr)) {
       FC2 fc2 = c2fn(f);
       w = fc2(f, C2(select, m_f64(-1), incG(x)), w);
       return insert_scal(f, fc2, x, 1, w, xia, rr);

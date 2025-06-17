@@ -53,7 +53,8 @@ NOINLINE i32 compareF(B w, B x) {
   return rc;
 }
 
-NOINLINE bool atomEqualF(B w, B x) {
+SHOULD_INLINE bool decomposeEqual(B w, B x, bool (*partEqual)(B,B)) {
+  assert(w.u != x.u);
   if (TI(w,byRef) || TY(w)!=TY(x)) return false;
   
   B2B dcf = TI(w,decompose);
@@ -64,7 +65,7 @@ NOINLINE bool atomEqualF(B w, B x) {
   usz wia = IA(wd);
   if (wia != IA(xd)) goto dec_ne;
   for (ux i = 0; i < wia; i++) {
-    if(!equal(wdp[i], xdp[i])) goto dec_ne;
+    if(!partEqual(wdp[i], xdp[i])) goto dec_ne;
   }
   decG(wd); decG(xd);
   return true;
@@ -74,36 +75,41 @@ NOINLINE bool atomEqualF(B w, B x) {
   return false;
 }
 
-bool atomEEqual(B w, B x) { // doesn't consume
-  if (w.u==x.u) return true;
-  #if !NEEQUAL_NEGZERO
-    if (isF64(w) & isF64(x)) return w.f==x.f;
-  #endif
+NOINLINE bool atomEqualF(B w, B x) { // doesn't consume
+  return decomposeEqual(w, x, eequal);
+}
+
+static bool atomEEqual(B w, B x) { // doesn't consume
+  if (isF64(w)) return isF64(x) && floatIndistinguishable(w.f, x.f);
   if (!isVal(w) || !isVal(x)) return false;
-  
-  if (TI(w,byRef) || TY(w)!=TY(x)) return false;
-  B2B dcf = TI(w,decompose);
-  B xd=dcf(incG(x)); B* xdp=harr_ptr(xd);
-  if (o2i(xdp[0])<=1) goto decx_ne;
-  B wd=dcf(incG(w)); B* wdp=harr_ptr(wd);
-  
-  usz wia = IA(wd);
-  if (wia != IA(xd)) goto dec_ne;
-  for (ux i = 0; i < wia; i++) {
-    if(!eequal(wdp[i], xdp[i])) goto dec_ne;
-  }
-  decG(wd); decG(xd);
-  return true;
-  
-  dec_ne:; decG(wd);
-  decx_ne:; decG(xd);
-  return false;
+  return atomEqualF(w, x);
 }
 
-// Functions in eqFns compare segments for matching
-// data argument comes from eqFnData
+bool indistinguishable(B w, B x) {
+  if (w.u == x.u) return true;
+  if (isAtm(w)) {
+    if (!isAtm(x)) return false;
+    if (isF64(w)) return isF64(x) && floatIndistinguishable(o2fG(w), o2fG(x));
+    if (!isVal(w) || !isVal(x)) return false; // incl. non-equal c32
+    return decomposeEqual(w, x, indistinguishable);
+  }
+  if (isAtm(x)) return false;
+  u8 we = TI(w,elType);
+  u8 xe = TI(x,elType);
+  if (we!=el_B && xe!=el_B) {
+    if (elNum(we) != elNum(xe)) return false;
+    return eequal(w, x); // fast path
+  }
+  if (!eqShape(w, x)) return false;
+  usz wia = IA(w);
+  SGetU(w) SGetU(x)
+  for (ux i = 0; i < wia; i++) if (!indistinguishable(GetU(w,i), GetU(x,i))) return false;
+  if (!indistinguishable(getFillN(w), getFillN(x))) return false;
+  return true;
+}
+
 static const u8 n = 99;
-u8 const eqFnData[] = { // for the main diagonal, amount to shift length by; otherwise, whether to swap arguments
+u8 const matchFnData[] = { // for the main diagonal, amount to shift length by; otherwise, whether to swap arguments
   0,0,0,0,0,n,n,n,
   1,0,0,0,0,n,n,n,
   1,1,1,0,0,n,n,n,
@@ -120,7 +126,7 @@ u8 const eqFnData[] = { // for the main diagonal, amount to shift length by; oth
   #include "../utils/includeSingeli.h"
 #else
   #define F(X) equal_##X
-  bool F(1_1)(void* w, void* x, u64 l, u64 d) {
+  bool F(1_1)(void* w, void* x, ux l, u64 d) {
     assert(l>0);
     u64* wp = w; u64* xp = x;
     usz q = l/64;
@@ -128,7 +134,7 @@ u8 const eqFnData[] = { // for the main diagonal, amount to shift length by; oth
     usz r = (-l)%64; return r==0 || (wp[q]^xp[q])<<r == 0;
   }
   #define DEF_EQ_U1(N, T) \
-    bool F(1_##N)(void* w, void* x, u64 l, u64 d) { assert(l>0);       \
+    bool F(1_##N)(void* w, void* x, ux l, u64 d) { assert(l>0);        \
       if (d!=0) { void* t=w; w=x; x=t; }                               \
       u64* wp = w; T* xp = x;                                          \
       for (usz i=0; i<l; i++) if (bitp_get(wp,i)!=xp[i]) return false; \
@@ -138,10 +144,19 @@ u8 const eqFnData[] = { // for the main diagonal, amount to shift length by; oth
   DEF_EQ_U1(16, i16)
   DEF_EQ_U1(32, i32)
   DEF_EQ_U1(f64, f64)
+  bool equal_f64_f64_reflexive(void* wp, void* xp, ux l, u64 data) {
+    bool r = true;
+    for (ux i = 0; i < l; i++) {
+      f64 w = ((f64*)wp)[i];
+      f64 x = ((f64*)xp)[i];
+      r&= (w==x) | (w!=w & x!=x);
+    }
+    return r;
+  }
   #undef DEF_EQ_U1
 
   #define DEF_EQ_I(NAME, S, T, INIT) \
-    bool F(NAME)(void* w, void* x, u64 l, u64 d) {            \
+    bool F(NAME)(void* w, void* x, ux l, u64 d) {             \
       assert(l>0); INIT                                       \
       S* wp = w; T* xp = x;                                   \
       for (usz i=0; i<l; i++) if (wp[i]!=xp[i]) return false; \
@@ -158,25 +173,26 @@ u8 const eqFnData[] = { // for the main diagonal, amount to shift length by; oth
   #undef DEF_EQ_I
   #undef DEF_EQ
 #endif
-bool notEq(void* a, void* b, u64 l, u64 data) { assert(l>0); return false; }
-INIT_GLOBAL EqFn eqFns[] = {
-  F(1_1),   F(1_8),    F(1_16),    F(1_32),    F(1_f64),   notEq,    notEq,     notEq,
-  F(1_8),   F(8_8),    F(s8_16),   F(s8_32),   F(s8_f64),  notEq,    notEq,     notEq,
-  F(1_16),  F(s8_16),  F(8_8),     F(s16_32),  F(s16_f64), notEq,    notEq,     notEq,
-  F(1_32),  F(s8_32),  F(s16_32),  F(8_8),     F(s32_f64), notEq,    notEq,     notEq,
-  F(1_f64), F(s8_f64), F(s16_f64), F(s32_f64), F(f64_f64), notEq,    notEq,     notEq,
-  notEq,    notEq,     notEq,      notEq,      notEq,      F(8_8),   F(u8_16),  F(u8_32),
-  notEq,    notEq,     notEq,      notEq,      notEq,      F(u8_16), F(8_8),    F(u16_32),
-  notEq,    notEq,     notEq,      notEq,      notEq,      F(u8_32), F(u16_32), F(8_8),
+static NOINLINE bool notEq(void* a, void* b, ux l, u64 data) { assert(l>0); return false; }
+
+#define MAKE_TABLE(NAME, F64_F64) \
+INIT_GLOBAL MatchFn NAME[] = { \
+  F(1_1),   F(1_8),    F(1_16),    F(1_32),    F(1_f64),   notEq,    notEq,     notEq,     \
+  F(1_8),   F(8_8),    F(s8_16),   F(s8_32),   F(s8_f64),  notEq,    notEq,     notEq,     \
+  F(1_16),  F(s8_16),  F(8_8),     F(s16_32),  F(s16_f64), notEq,    notEq,     notEq,     \
+  F(1_32),  F(s8_32),  F(s16_32),  F(8_8),     F(s32_f64), notEq,    notEq,     notEq,     \
+  F(1_f64), F(s8_f64), F(s16_f64), F(s32_f64), F(F64_F64), notEq,    notEq,     notEq,     \
+  notEq,    notEq,     notEq,      notEq,      notEq,      F(8_8),   F(u8_16),  F(u8_32),  \
+  notEq,    notEq,     notEq,      notEq,      notEq,      F(u8_16), F(8_8),    F(u16_32), \
+  notEq,    notEq,     notEq,      notEq,      notEq,      F(u8_32), F(u16_32), F(8_8),    \
 };
+MAKE_TABLE(matchFns, f64_f64);
+MAKE_TABLE(matchFnsR, f64_f64_reflexive);
+#undef MAKE_TABLE
+
 #undef F
 
 
-
-FORCE_INLINE bool equalTyped(B w, B x, u8 we, u8 xe, usz ia) {
-  usz idx = EQFN_INDEX(we, xe);
-  return eqFns[idx](tyany_ptr(w), tyany_ptr(x), ia, eqFnData[idx]);
-}
 
 static NOINLINE bool equalSlow(B w, B x, usz ia) {
   SLOW2("equal", w, x);
@@ -190,24 +206,13 @@ static NOINLINE bool eequalSlow(B w, B x, usz ia) {
   for (usz i = 0; i < ia; i++) if(!eequal(GetU(w,i),GetU(x,i))) return false;
   return true;
 }
-static NOINLINE bool eequalFloat(f64* wp, f64* xp, usz ia) {
-  u64 r = 1;
-  for (usz i = 0; i < ia; i++) {
-    #if NEEQUAL_NEGZERO
-    r&= ((u64*)wp)[i] == ((u64*)xp)[i];
-    #else
-    r&= (wp[i]==xp[i]) | (wp[i]!=wp[i] & xp[i]!=xp[i]);
-    #endif
-  }
-  return r;
-}
 
 
 
-#define EQ_START(F)              \
+#define MATCH_IMPL(ATOM, SLOW, MATCH) \
   if (isAtm(w)) {                \
     if (!isAtm(x)) return false; \
-    return F(w, x);              \
+    return ATOM(w, x);           \
   }                              \
   if (isAtm(x)) return false;    \
   ur wr = RNK(w);                \
@@ -215,25 +220,22 @@ static NOINLINE bool eequalFloat(f64* wp, f64* xp, usz ia) {
   usz ia = IA(x);                \
   if (LIKELY(wr==1)) { if (ia != IA(w)) return false; } \
   else if (!eqShPart(SH(w), SH(x), wr)) return false;   \
-  if (ia==0) return true;
+  if (ia==0) return true;        \
+  u8 we = TI(w,elType);          \
+  u8 xe = TI(x,elType);          \
+  if (we!=el_B && xe!=el_B) {    \
+    MatchFnObj f = MATCH(we,xe); \
+    return MATCH_CALL(f, tyany_ptr(w), tyany_ptr(x), ia); \
+  }                              \
+  return SLOW(w, x, ia);
 
 NOINLINE bool equal(B w, B x) { // doesn't consume
-  EQ_START(atomEqual);
-  
-  u8 we = TI(w,elType);
-  u8 xe = TI(x,elType);
-  if (we!=el_B && xe!=el_B) return equalTyped(w, x, we, xe, ia);
-  
-  return equalSlow(w, x, ia);
+  NOGC_CHECK("cannot use equal(w,x) during noAlloc");
+  MATCH_IMPL(atomEqual, equalSlow, MATCH_GET);
 }
 
 bool eequal(B w, B x) { // doesn't consume
+  NOGC_CHECK("cannot use eequal(w,x) during noAlloc");
   if (w.u==x.u) return true;
-  EQ_START(atomEEqual);
-  
-  u8 we = TI(w,elType);
-  u8 xe = TI(x,elType);
-  if (we==el_f64 && xe==el_f64) return eequalFloat(f64any_ptr(w), f64any_ptr(x), ia);
-  if (RARE(we==el_B || xe==el_B)) return eequalSlow(w, x, ia);
-  return equalTyped(w, x, we, xe, ia);
+  MATCH_IMPL(atomEEqual, eequalSlow, MATCHR_GET);
 }

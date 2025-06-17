@@ -234,7 +234,7 @@ static NOINLINE void comps_push(B src, B state, B re) {
 #define COMPS_POP ({ ptr_dec(comps_curr); comps_curr = NULL; })
 
 static NOINLINE Block* bqn_compc(B str, B state, B re) { // consumes str,state
-  str = chr_squeeze(str);
+  str = squeeze_chrOut(str);
   COMPS_PUSH(str, state, re);
   B* o = harr_ptr(re);
   Block* r = load_buildBlock(c2G(o[re_compFn], incG(o[re_compOpts]), inc(str)), str, COMPS_CREF(path), COMPS_CREF(name), NULL, 0);
@@ -245,7 +245,7 @@ Block* bqn_comp(B str, B state) {
   return bqn_compc(str, state, def_re);
 }
 Block* bqn_compScc(B str, B state, B re, Scope* sc, bool loose, bool noNS) {
-  str = chr_squeeze(str);
+  str = squeeze_chrOut(str);
   COMPS_PUSH(str, state, re);
   B* o = harr_ptr(re);
   B vName = emptyHVec();
@@ -679,8 +679,8 @@ static void freed_visit(Value* x) {
   fatal("visiting t_freed\n");
   #endif
 }
-static void empty_free(Value* x) { fatal("FREEING EMPTY\n"); }
-static void builtin_free(Value* x) { fatal("FREEING BUILTIN\n"); }
+static void empty_free(Value* x) { fatal("Attempted to free empty object; double-free, wrong refcount management, or heap corruption!\n"); }
+static void builtin_free(Value* x) { fatal("Attempted to free a builtin object; double-free, wrong refcount management, or heap corruption!\n"); }
 DEF_FREE(def) { }
 static void def_visit(Value* x) { fatal("undefined visit for object\n"); }
 static void def_print(FILE* f, B x) { fprintf(f, "(%d=%s)", v(x)->type, type_repr(v(x)->type)); }

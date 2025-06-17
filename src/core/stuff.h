@@ -9,6 +9,14 @@ static void storeu_u16(void* p, u16 v) { memcpy(p, &v, 2); }  static u16 loadu_u
 #define ptr_roundUp(P, N) ({ AUTO p_ = (P); u64 n_ = (N); TOPTR(typeof(*p_), (ptr2u64(p_)+n_-1) & ~(n_-1)); })
 #define ptr_roundUpToEl(P) ({ AUTO p2_ = (P); ptr_roundUp(p2_, _Alignof(typeof(*p2_))); })
 
+static u64 bit_reverse64(u64 x) {
+  u64 c = __builtin_bswap64(x);
+  c = (c&0x0f0f0f0f0f0f0f0f)<<4 | (c&0xf0f0f0f0f0f0f0f0)>>4;
+  c = (c&0x3333333333333333)<<2 | (c&0xcccccccccccccccc)>>2;
+  c = (c&0x5555555555555555)<<1 | (c&0xaaaaaaaaaaaaaaaa)>>1;
+  return c;
+}
+
 void print_allocStats(void);
 void vm_pstLive(void);
 
@@ -64,7 +72,7 @@ extern INIT_GLOBAL M_FillF fillFns[el_MAX];
 #define TYARR_SZ2(T,IA) TYARR_SZ(T,IA)
 #define TYARR_SZW(W,IA) (offsetof(TyArr, a) + (W)*(IA))
 
-#define WRAP(X,IA,MSG) ({ i64 wV=(i64)(X); u64 iaW=(IA); if(RARE((u64)wV >= iaW)) { if(wV<0) wV+= iaW; if((u64)wV >= iaW) {MSG;} }; (usz)wV; })
+#define WRAP(X,IA,MSG) ({ i64 wV=(i64)(X); u64 iaW=(IA); if(RARE((u64)wV >= iaW)) { wV+= iaW; if(RARE((u64)wV >= iaW)) {MSG;} }; (usz)wV; })
 
 static void tyarrv_freeP(Arr* x) { assert(PRNK(x)<=1 && IS_DIRECT_TYARR(PTY(x))); mm_free((Value*)x); }
 static void tyarrv_free(B x) { tyarrv_freeP(a(x)); }
@@ -205,8 +213,17 @@ void bitwiden(void* rp, ux rcsz, void* xp, ux xcsz, ux cam);
 
 Arr* customizeShape(B x); // consumes; returns new array with unset shape
 Arr* cpyWithShape(B x); // consumes; returns new array with the same shape as x (SH(x) will be dangling, PSH(result) must be used to access it)
-Arr* emptyArr(B x, ur xr); // doesn't consume; returns an empty array with the same fill as x; if xr>1, shape must be set
+Arr* emptyArr(B x, ur xr); // doesn't consume; returns an empty array with the same fill as x; if xr>1, shape must be set; else, x may have refc>1
+Arr* emptyVec(B x); // doesn't consume; emptyArr(x, 1)
+
+typedef struct { Arr* obj; void* data; } UntaggedArr;
+UntaggedArr  m_arrp_copyFill(B x, ux ia); // doesn't consume; create new array with the fill and eltype of x
+UntaggedArr m_barrp_copyFill(B x, ux ia); // doesn't consume; create new fillarr or harr with the fill of x
+static UntaggedArr m_barrp_withFill(ux ia, B fill); // doesn't consume; create new fillarr or harr with the specified fill
+
 NOINLINE Arr* emptyWithFill(B fill); // consumes; returns new array with unset shape and the specified fill
+B emptyNumsWithShape(B x); // consumes; empty bitarr with shape ≢x
+B emptyChrsWithShape(B x); // consumes; empty c8arr  with shape ≢x
 
 B m_vec1(B a);      // complete fills
 B m_vec2(B a, B b); // incomplete fills
@@ -245,6 +262,7 @@ B vec_addN(B w, B x); // consumes both; fills may be wrong
 B vec_join(B w, B x); // consumes both
 i32 num_fmt(char buf[30], f64 x);
 #define NUM_FMT_BUF(N,X) char N[30]; num_fmt(N, X);
+B do_fmt(B s, char* p, va_list a);
 B append_fmt(B s, char* p, ...);
 B make_fmt(char* p, ...);
 void print_fmt(char* p, ...);
@@ -258,9 +276,12 @@ void fprint_fmt(FILE* f, char* p, ...);
 
 // function stuff
 
-#define C1(F,  X) F##_c1(m_f64(0),  X)
-#define C2(F,W,X) F##_c2(m_f64(0),W,X)
+#define C1_0(F,  X) F##_c1(m_f64(0),  X)
+#define C2_0(F,W,X) F##_c2(m_f64(0),W,X)
+#define C1(F,  X) C1_0(F,  X)
+#define C2(F,W,X) C2_0(F,W,X)
 
+bool validate_flags(bool crash, B x);
 char* type_repr(u8 u);
 char* pfn_repr(u8 u);
 char* pm1_repr(u8 u);
@@ -271,15 +292,41 @@ bool isPureFn(B x); // doesn't consume
 bool isStr(B x); // doesn't consume; returns if x is a rank 1 array of characters (includes any empty array)
 B bqn_merge(B x, u32 type); // consumes
 
-B any_squeeze(B x); // consumes; accepts any array, returns one with the smallest type (doesn't recurse!)
+
+
+B squeeze_any(B x); // consumes; accepts any array, returns one with the smallest type (doesn't recurse!)
 B squeeze_deep(B x); // consumes; accepts any object, returns an object with all parts necessary for equality checking & hashing squeezed; if this function errors due to OOM, the argument won't yet be consumed
-B num_squeeze(B x); // consumes; see note below
-B chr_squeeze(B x); // consumes; see note below
-// Note that num_squeeze & chr_squeeze don't check for fl_squoze, and unconditionally set it. Thus, don't call it on an array if it could be squeezable by the opposite method.
-// or, if you do want to, if TI(x,elType) isn't of the squeezed type, either remove fl_squoze or call the other squeeze function.
-// The functions below can be used as direct replacements of (num|chr)_squeeze if the argument might already be squeezed.
-static inline B num_squeezeChk(B x) { return FL_HAS(x,fl_squoze)? x : num_squeeze(x); }
-static inline B chr_squeezeChk(B x) { return FL_HAS(x,fl_squoze)? x : chr_squeeze(x); }
+
+typedef struct { B r; u8 re; } SqRes;
+
+#if RANDOMIZE_HEURISTICS
+SqRes squeeze_numTryRand(B x, u32 req);
+SqRes squeeze_chrTryRand(B x, u32 req);
+#define SQ_UNPACK(F) SqRes r = F##Rand(x, req); *re_out = r.re; assert(r.re == TI(r.r,elType)); return r.r;
+#else
+SqRes squeeze_numTryImpl(B x);
+SqRes squeeze_chrTryImpl(B x);
+#define SQ_UNPACK(F) SqRes r = F##Impl(x); *re_out = r.re; assert(r.re == TI(r.r,elType)); return r.r;
+#endif
+
+B squeeze_numNew(B x); // consumes; doesn't try using any existing flags; primarily intended for squeezing a newly-created array; returns bitarr for IA(x)==0
+B squeeze_chrNew(B x); // consumes; doesn't try using any existing flags; primarily intended for squeezing a newly-created array; returns c8arr for IA(x)==0
+
+static B squeeze_numNewTy(u8 xe, B x) { debug_assert(TI(x,elType)==xe); return squeeze_numNew(x); } // squeeze_numNew but with a known eltype; currently eltype isn't used for anything
+
+static B squeeze_numTry(B x, u8* re_out, u32 req) { SQ_UNPACK(squeeze_numTry) } // consumes; always returns bitarr for IA(x)==0; utilizes squoze/sortedness flags
+static B squeeze_chrTry(B x, u8* re_out, u32 req) { SQ_UNPACK(squeeze_chrTry) } // consumes; always returns bitarr for IA(x)==0; utilizes squoze flag
+// req parameter options (these matter for heuristic randomization, but otherwise are unused):
+#define SQ_ANY 0 // no requirements placed on result, i.e. can be a no-op or even widen type
+#define SQ_INT 1 // must squeeze to elInt(xe) if possible
+#define SQ_CHR 1 // must squeeze to elChr(xe) if possible
+#define SQ_NUM 2 // must squeeze to elNum(xe) if possible
+#define SQ_BEST 4 // must squeeze to smallest type possible
+#define SQ_EMPTY 8 // must squeeze to smallest type possible on empty input
+#define SQ_MSGREQ(X) ((X)<<8) // if the settings in X aren't followed, different error messages may be produced
+
+B squeeze_numOut(B x); // consumes; squeeze_numTry but without re_out
+B squeeze_chrOut(B x); // consumes; squeeze_chrTry but without re_out
 
 B def_fn_uc1(B t,    B o,           B x);  B def_fn_ucw(B t,    B o,           B w, B x);
 B def_m1_uc1(Md1* t, B o, B f,      B x);  B def_m1_ucw(Md1* t, B o, B f,      B w, B x);
@@ -298,8 +345,10 @@ void noop_visit(Value* x);
   #define VISIT_SHAPE(X)
 #endif
 
+
+
 #define ICMP(W,X) ({ AUTO wt = (W); AUTO xt = (X); (wt>xt?1:0)-(wt<xt?1:0); })
-SHOULD_INLINE i32 compareFloat(f64 w, f64 x) {
+SHOULD_INLINE i32 floatCompare(f64 w, f64 x) { // w •Cmp x
   if (RARE(w!=w || x!=x)) return (w!=w) - (x!=x);
   #if __x86_64__
     return (w>x) - !(w>=x); // slightly better codegen from being able to reuse the same compare instruction
@@ -307,19 +356,30 @@ SHOULD_INLINE i32 compareFloat(f64 w, f64 x) {
     return (w>x) - (w<x);
   #endif
 }
+SHOULD_INLINE bool floatIndistinguishable(f64 a, f64 b) { // whether the floats are indistinguishable by BQN semantics
+  return a==b || (a!=a && b!=b);
+}
+NOINLINE bool indistinguishable(B w, B x); // whether w and x are semantically indistinguishable (i.e. NaN==NaN, fill equality is checked; different internal type/metadata is tolerated)
+
 NOINLINE i32 compareF(B w, B x);
 static i32 compare(B w, B x) { // doesn't consume; -1 if w<x, 1 if w>x, 0 if w≡x
-  if (isNum(w) & isNum(x)) return compareFloat(o2fG(w), o2fG(x));
+  if (isNum(w) & isNum(x)) return floatCompare(o2fG(w), o2fG(x));
   if (isC32(w) & isC32(x)) return ICMP(o2cG(w), o2cG(x));
   return compareF(w, x);
 }
 
 NOINLINE bool atomEqualF(B w, B x);
 static bool atomEqual(B w, B x) { // doesn't consume
-  if(isF64(w)&isF64(x)) return w.f==x.f;
+  if(isF64(w)) return isF64(x) && o2fG(w) == o2fG(x);
   if (w.u==x.u) return true;
   if (!isVal(w) | !isVal(x)) return false;
   return atomEqualF(w, x);
+}
+static bool compatible(B w, B x) {
+  return eequal(w, x);
+}
+static bool compatibleFloats(f64 a, f64 b) {
+  return floatIndistinguishable(a, b);
 }
 
 NOINLINE usz depthF(B x);
@@ -437,7 +497,7 @@ FORCE_INLINE void preFree(Value* x, bool mmx) {
     if (x->type==t_empty) fatal("double-free");
     // u32 undef;
     // x->refc = undef;
-    x->refc = -1431655000;
+    x->refc = -1111119190; // unsigned: 3183848106; hex: 0xbdc5aaaa
   #endif
   // x->refc = 0x61616161;
 }

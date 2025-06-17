@@ -247,7 +247,7 @@ B scan_c1(Md1D* d, B x) { B f = d->f;
   usz ia = IA(x); if (ia <= 1) { if (ia==1 && RNK(x)==0) goto unit; return x; }
   usz n = *SH(x); if (n  <= 1) return x;
   if (RARE(!isFun(f))) {
-    if (isMd(f)) thrM("Calling a modifier");
+    errMd(f);
     B xf = getFillR(x);
     MAKE_MUT(rm, ia);
     usz csz = arr_csz(x);
@@ -337,7 +337,7 @@ B scan_c1(Md1D* d, B x) { B f = d->f;
       if (xe==el_i32) { i32* xp=i32any_ptr(x); for (usz i=1; i<ia; i++) { c = c!=xp[i]; bitp_set(rp,i,c); } decG(x); return r; }
       UD;
     }
-    if (rtid==n_or) { x=num_squeezeChk(x); xe=TI(x,elType); if (xe==el_bit) return scan_or(x, ia); }
+    if (rtid==n_or) { x=squeeze_numTry(x, &xe, SQ_ANY); if (xe==el_bit) return scan_or(x, ia); }
   }
   base:;
   if (ia!=n && ia >= 6 * (u64)n && isPervasiveDy(f)) return scan_arith(f, m_f64(0), x, SH(x));
@@ -367,11 +367,10 @@ B scan_c2(Md1D* d, B w, B x) { B f = d->f;
   if (isArr(w)? !ptr_eqShape(SH(w), RNK(w), xsh+1, xr-1) : xr!=1) thrF("𝕨𝔽`𝕩: Shape of 𝕨 must match the cell of 𝕩 (%H ≡ ≢𝕨, %H ≡ ≢𝕩)", w, x);
   if (ia==0) { dec(w); return x; }
   if (RARE(!isFun(f))) {
-    if (isMd(f)) thrM("Calling a modifier");
+    Arr* ra = arr_shCopy(reshape_one(ia, inc(errMd(f))), x);
     B xf = getFillR(x);
-    MAKE_MUT(rm, ia);
-    mut_fill(rm, 0, f, ia);
-    return withFill(mut_fcd(rm, x), xf);
+    decG(x);
+    return withFill(taga(ra), xf);
   }
   u8 xe = TI(x,elType);
   if (RTID(f) != RTID_NONE) {

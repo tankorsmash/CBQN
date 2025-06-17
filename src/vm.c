@@ -62,6 +62,7 @@ void print_BCStream(FILE* f, u32* p) {
     if (*p == RETD || *p == RETN) return;
     p = nextBC(p);
   }
+  fflush(f);
 }
 
 
@@ -811,7 +812,7 @@ B evalBC(Body* b, Scope* sc, Block* bl) { // doesn't consume
           NOGC_E;
           if (allNum) {
             GS_UPD;
-            ADD(num_squeeze(r.b));
+            ADD(squeeze_numNew(r.b));
           } else ADD(r.b);
         }
         break;
@@ -988,8 +989,10 @@ NOINLINE Scope* m_scope(Body* body, Scope* psc, u16 varAm, i32 initVarAm, B* ini
 
 B execBlockInplaceImpl(Body* body, Scope* sc, Block* block) { return execBodyInplaceI(block->bodies[0], sc, block); }
 
+bool jit_enabled = true;
 #if JIT_START != -1
 B mnvmExecBodyInplace(Body* body, Scope* sc) {
+  if (!jit_enabled) return evalBC(body, sc, body->bl);
   Nvm_res r = m_nvm(body);
   body->nvm = r.p;
   body->nvmRefs = r.refs;
@@ -1386,7 +1389,7 @@ NOINLINE void vm_printPos(Comp* comp, i32 bcPos, i64 pos) {
     
     
     // want to try really hard to print errors
-    if (!cbqn_initialized) goto native_print;
+    if (!cbqn_initialized || gc_running) goto native_print;
     #if FORCE_NATIVE_ERROR_PRINT
       goto native_print;
     #endif
@@ -1423,13 +1426,14 @@ native_print:
   }
 }
 
+bool omitStackEntries = true;
 NOINLINE void vm_pst(Env* s, Env* e) { // e not included
   assert(s<=e);
   i64 l = e-s;
   i64 i = l-1;
   while (i>=0) {
     Env* c = s+i;
-    if (l>30 && i==l-10) {
+    if (l>30 && i==l-10 && omitStackEntries) {
       fprintf(stderr, "("N64d" entries omitted)\n", l-20);
       i = 10;
     }

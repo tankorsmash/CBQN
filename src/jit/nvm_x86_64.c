@@ -135,7 +135,7 @@ INS B i_LST_p(B el0, i64 sz, B* cStack) { assert(sz>0);
   r.a[sz-1] = el0;
   for (i64 i = 1; i < sz; i++) if (!isNum(r.a[sz-i-1] = GSP)) allNum = false;
   NOGC_E; GS_UPD;
-  if (allNum) return num_squeeze(r.b);
+  if (allNum) return squeeze_numNew(r.b);
   return r.b;
 }
 INS B i_ARMO(B el0, i64 sz, u32* bc, B* cStack) { assert(sz>0); POS_UPD;
@@ -387,22 +387,27 @@ static OptRes opt(u32* bc0) {
         break;
       }
       case LSTO: case LSTM: { i32 len = *bc++;
-        bool allNum = len>0;
-        for (i32 i = 0; i < len; i++) { S(c,i);
-          if(c.p==-1) goto defIns;
-          allNum&= isNum(c.v);
+        if (len == 0) {
+          TSADD(stk, SREF(bi_emptyHVec, pos));
+          cact = 0;
+        } else {
+          bool allNum = len>0;
+          for (i32 i = 0; i < len; i++) { S(c,i);
+            if(c.p==-1) goto defIns;
+            allNum&= isNum(c.v);
+          }
+          TSSIZE(stk)-= len-1; // huh, doing this beforehand works out nicely
+          HArr_p h = m_harrUv(len);
+          for (i32 i = 0; i < len; i++) { S(c,-i);
+            h.a[i] = inc(c.v);
+            RM(c.p);
+          }
+          NOGC_E;
+          B r = allNum? squeeze_numNew(h.b) : h.b;
+          cact = 5;
+          TSADD(data, r.u);
+          stk[TSSIZE(stk)-1] = SREF(r, pos);
         }
-        TSSIZE(stk)-= len-1; // huh, doing this beforehand works out nicely
-        HArr_p h = m_harrUv(len);
-        for (i32 i = 0; i < len; i++) { S(c,-i);
-          h.a[i] = inc(c.v);
-          RM(c.p);
-        }
-        NOGC_E;
-        B r = allNum? num_squeeze(h.b) : h.b;
-        cact = 5;
-        TSADD(data, r.u);
-        stk[TSSIZE(stk)-1] = SREF(r, pos);
         break;
       }
       case RETN: case RETD:
@@ -416,6 +421,7 @@ static OptRes opt(u32* bc0) {
     }
     #undef S
     #undef L64
+    assert(stk_o->size <= stk_o->cap);
     TSADD(actions, cact);
     if (ret) break;
     bc = nextBC(sbc);

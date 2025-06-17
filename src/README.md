@@ -7,12 +7,12 @@ Run `build/build clangd` to generate a `compile_commands.json` file which clangd
 
 ## Conventions
 
-Functions starting with `m_` makes a new object (some NaN-boxed, some heap-allocated).  
+Functions starting with `m_` make a new object (either direct/NaN-boxed or heap-allocated).  
 Functions starting with `q_` are queries/predicates, and return a boolean.  
-Functions ending with `R` are either supposed to be called rarely, or the caller expects that a part of it happens rarely.  
+Functions ending with `R` are either supposed to be called rarely, or the caller expects that some condition in it happens rarely.  
 Functions ending with `N` are non-inlined versions of another function.  
 Functions ending with `F` are infrequently needed fallback parts of a function.  
-Functions ending with `P` (or sometimes containing `p` or `P` or `v` or `V`) take a pointer argument (as opposed to a (NaN-boxed) `B`).  
+Functions ending with `P` (or sometimes containing `p` or `P` or `v` or `V`) take a direct pointer argument (as opposed to a tagged `B`).  
 Functions ending with `U` return (or take) a non-owned object (`U` = "unincremented").  
 Functions ending with `_c1` are monadic implementations, `_c2` are dyadic (see [builtin implementations](#builtin-implementations))  
 Functions ending with `G` can only be called with some guarantee (e.g. argument is heap-allocated, or fits in some type, etc).  
@@ -51,7 +51,6 @@ src/
   main.c      main function & commandline stuff
   ns.c        namespaces
   vm.c        virtual machine interpreter
-)
 ```
 
 ### Random example functions
@@ -357,6 +356,7 @@ A fancier message can be created with `thrF(message, …)` with printf-like (but
 %ul  decimal u64
 %xi  hex u32
 %xl  hex u64
+%z   decimal ux
 %s   decimal usz
 %f   f64
 %p   pointer
@@ -366,6 +366,8 @@ A fancier message can be created with `thrF(message, …)` with printf-like (but
 %R   a B object of a number or string (string is printed without quotes or escaping)
 %H   the shape of a B object
 %2H  a shape, passed in by a ur & usz*
+%0H  the shape of a B object, or "atom" if the input is an atom, or "unit array" if it's a rank-0 array
+%02H a shape, passed in by a ur & usz*, or "unit array" if the rank is 0
 %B   a B object, formatted by •Repr (be very very careful to not give a potentially large object, which'd lead to unreadably long messages!)
 %%   "%"
 ```
@@ -452,7 +454,6 @@ Most toggles require a value of `1` to be enabled.
 #define DEBUG_VM        0 // print evaluation of every bytecode
 #define USE_VALGRIND    0 // adjust memory manager & code for valgrind usage
 #define VERIFY_TAIL   (u) // number of bytes after the end of an array to verify not being improperly modified; 64 in DEBUG
-#define NEEQUAL_NEGZERO 0 // make negative zero not equal zero for •internal.EEqual
 #define RT_VERIFY_ARGS  1 // rtverify: preserve arguments for printing on failure
 #define GC_EVERY_NTH_ALLOC (u) // force a GC on every n'th allocation (<=1 to GC on every alloc)
 

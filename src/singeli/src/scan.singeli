@@ -7,8 +7,8 @@ include './f64'
 include './spaced'
 include './scan_common'
 if_inline (hasarch{'AARCH64'}) {
-  def __shl{a:V=[_]T, b:U if not isvec{U}} = a << V**cast_i{T,b}
-  def __shr{a:V=[_]T, b:U if not isvec{U}} = a << V**cast_i{T,-b}
+  def __shl{a:V=[_]T, b:U if not vect{U}} = a << V**cast_i{T,b}
+  def __shr{a:V=[_]T, b:U if not vect{U}} = a << V**cast_i{T,-b}
 }
 
 # Initialized scan, generic implementation
@@ -17,7 +17,7 @@ fn scan_scal{T, op}(x:*T, r:*T, len:u64, m:T) : void = {
 }
 
 def scan_loop{init, x:*T, r:*T, len:(u64), scan, scan_last} = {
-  def step = arch_defvw/width{T}
+  def step = arch_defvw{}/width{T}
   def V = [step]T
   p:= V**init
   xv:= *V~~x
@@ -41,8 +41,8 @@ def get_scan_last{op, pre} = {
 def scan_idem = scan_scal
 fn scan_idem{T, op if has_simd}(x:*T, r:*T, len:u64, init:T) : void = {
   def {scan, last} = get_scan_last{op, make_scan_idem{T, op}}
-  def cmp = match (op) { {(min)} => (>); {(max)} => (<) }
-  def step = arch_defvw/width{T}
+  def cmp = match (op) { {(__min)} => (>); {(__max)} => (<) }
+  def step = arch_defvw{}/width{T}
   def V = [step]T
   p:= V**init
   xv:= *V ~~ x
@@ -65,17 +65,17 @@ fn scan_idem{T, op if has_simd}(x:*T, r:*T, len:u64, init:T) : void = {
   if (q!=0) store_blended_hom{rv+e, mask_of_first{V, q}, last{load{xv,e}, p}}
 }
 
-export{'si_scan_min_init_i8',  scan_idem{i8 , min}}; export{'si_scan_max_init_i8',  scan_idem{i8 , max}}
-export{'si_scan_min_init_i16', scan_idem{i16, min}}; export{'si_scan_max_init_i16', scan_idem{i16, max}}
-export{'si_scan_min_init_i32', scan_idem{i32, min}}; export{'si_scan_max_init_i32', scan_idem{i32, max}}
-export{'si_scan_min_init_f64', scan_idem{f64, min}}; export{'si_scan_max_init_f64', scan_idem{f64, max}}
+export{'si_scan_min_init_i8',  scan_idem{i8 , __min}}; export{'si_scan_max_init_i8',  scan_idem{i8 , __max}}
+export{'si_scan_min_init_i16', scan_idem{i16, __min}}; export{'si_scan_max_init_i16', scan_idem{i16, __max}}
+export{'si_scan_min_init_i32', scan_idem{i32, __min}}; export{'si_scan_max_init_i32', scan_idem{i32, __max}}
+export{'si_scan_min_init_f64', scan_idem{f64, __min}}; export{'si_scan_max_init_f64', scan_idem{f64, __max}}
 
 fn scan_idem_id{T, op}(x:*T, r:*T, len:u64) : void = {
   scan_idem{T, op}(x, r, len, get_id{op, T})
 }
-export{'si_scan_min_i8',  scan_idem_id{i8 , min}}; export{'si_scan_max_i8',  scan_idem_id{i8 , max}}
-export{'si_scan_min_i16', scan_idem_id{i16, min}}; export{'si_scan_max_i16', scan_idem_id{i16, max}}
-export{'si_scan_min_i32', scan_idem_id{i32, min}}; export{'si_scan_max_i32', scan_idem_id{i32, max}}
+export{'si_scan_min_i8',  scan_idem_id{i8 , __min}}; export{'si_scan_max_i8',  scan_idem_id{i8 , __max}}
+export{'si_scan_min_i16', scan_idem_id{i16, __min}}; export{'si_scan_max_i16', scan_idem_id{i16, __max}}
+export{'si_scan_min_i32', scan_idem_id{i32, __min}}; export{'si_scan_max_i32', scan_idem_id{i32, __max}}
 
 # Assumes identity is 0
 def scan_plus = scan_assoc_id0{+}
@@ -103,7 +103,7 @@ def shift_first{c:V=[l]_, p:V} = {
 fn scan_stride_assoc{op, T, Ret, check_over}(xv:*void, rv:*void, ia:usz, l:usz) : Ret = {
   def minvalue{(f64)} = -1/0; def maxvalue{(f64)} = 1/0
   def id = match (op) {
-    {(min)} => maxvalue; {(max)} => minvalue
+    {(__min)} => maxvalue; {(__max)} => minvalue
     {(+)} => ({_}=>0)
   }
   x:= *T~~xv; r:= *T~~rv
@@ -183,7 +183,7 @@ fn scan_stride_assoc{op, T, Ret, check_over}(xv:*void, rv:*void, ia:usz, l:usz) 
         }
       }
     } else if (same{op, +} and T<=i32 and has_simd and (has_shuf or l>=vl)) {
-      def vl = arch_defvw/wT; def V = [vl]T
+      def vl = arch_defvw{}/wT; def V = [vl]T
       @for_masked{vl} (x in tup{V, x+l}, r in tup{V, r+l}, p in tup{V, r}, M in 'm' over ia-l) {
         r = op_chk{M, p, x}
       }
@@ -196,13 +196,13 @@ fn scan_stride_assoc{op, T, Ret, check_over}(xv:*void, rv:*void, ia:usz, l:usz) 
 def scan_stride_assoc{op, T} = scan_stride_assoc{op, T, void, {..._}=>{}}
 def check_add_over{_, w:T, x:T, r:T} = { if ((w^r) & (x^r) < 0) return{0} }
 def check_add_over{M, w:V=[_]E, x:V, r:V} = {
-  o:= (if (not hasarch{'X86_64'} or width{E}<=16) any_hom{M, subs{r,w} != x}
+  o:= (if (not hasarch{'X86_64'} or width{E}<=16) any_hom{M, __subs{r,w} != x}
        else any_top{M, (w^r) & (x^r)})
   if (o) return{0}
 }
 def check_add_over{M, x, r} = check_add_over{M, r-x, x, r}
 export_tab{'si_scan_stride_minmax',
-  flat_table{scan_stride_assoc, tup{min,max}, tup{i8,i16,i32,f64}}
+  flat_table{scan_stride_assoc, tup{__min,__max}, tup{i8,i16,i32,f64}}
 }
 export_tab{'si_scan_stride_add', tup{
   ...each{scan_stride_assoc{+, ., u1, check_add_over}, tup{i8,i16,i32}},
@@ -225,7 +225,7 @@ fn scan_neq{}(c:u64, x:*u64, r:*u64, nw:usz) : void = {
   }
 }
 fn scan_neq{if has_simd}(c0:u64, x:*u64, r:*u64, nw:usz) : void = {
-  def vl = arch_defvw / 64
+  def vl = arch_defvw{} / 64
   def V = [vl]u64
   c := V**c0
   @for_masked{vl} (x in tup{V, x}, r in tup{V, r} over nw) {
@@ -264,7 +264,7 @@ fn scan_neq{if hasarch{'AVX512BW', 'VPCLMULQDQ', 'GFNI'}}(init:u64, x:*u64, r:*u
   def sse{a} = make{[2]u64, a, 0}
   carry := sse{init}
   # xor-scan on bytes
-  xmat := V**base{256, 1<<(8-iota{8}) - 1}
+  xmat := V**base{256, tail{8-iota{8}}}
   def xor8 = emit{V, '_mm512_gf2p8affine_epi64_epi8', ., xmat, 0}
   # Exclusive xor-scan on one word
   def exor64 = clmul{., sse{1<<64 - 2}, 0}
@@ -362,9 +362,9 @@ def addChk{a:T, b:T==f64} = tup{0, a+b}
 def widenFull{E, xs} = {
   merge{...each{{x:X=[k]T} => {
     def tb = width{E} * k
-    if (tb<=arch_defvw) tup{widen{[k]E, x}}
+    if (tb<=arch_defvw{}) tup{widen{[k]E, x}}
     else if (1) {
-      assert{tb == 2*arch_defvw}
+      assert{tb == 2*arch_defvw{}}
       tup{
         widen{[k/2]E, half{x,0}},
         widen{[k/2]E, half{x,1}}
@@ -373,7 +373,7 @@ def widenFull{E, xs} = {
   }, xs}}
 }
 
-def floor{x if knum{x}} = x - (x%1)
+def __floor{x if knum{x}} = x - (x%1)
 def maxabsval{T if issigned{T}} = -minvalue{T}
 def maxsafeint{T if issigned{T}} = maxvalue{T}
 def maxsafeint{T==f64} = 1<<53
@@ -394,8 +394,8 @@ fn plus_scan{X, R, O}(x:*X, c:R, r:*R, len:u64) : O = {
 }
 # Sum as many vector registers as possible; modifies c and i
 def simd_plus_scan_part{x:*X, c:R, r:*R, len:(u64), i:(u64)} = {
-  def b = max{width{R}/2, width{X}}
-  def bulk = arch_defvw/b
+  def b = __max{width{R}/2, width{X}}
+  def bulk = arch_defvw{}/b
   
   def wd = (X!=R) & (width{X}<32) # whether to widen the working copy one size
   def WE = tern{wd, w_d{X}, X} # working copy element type
@@ -407,11 +407,11 @@ def simd_plus_scan_part{x:*X, c:R, r:*R, len:(u64), i:(u64)} = {
   
   if (R!=f64) { def m = maxFastA + maxFastE*bulk; assert{m<=maxvalue{R}}; assert{-m>=minvalue{R}} }
   
-  cv:= [arch_defvw/width{R}]R ** c
+  cv:= [arch_defvw{}/width{R}]R ** c
   
-  if (R==f64 and c != floor{c}) goto{'end'}
+  if (R==f64 and c != __floor{c}) goto{'end'}
   while (1) {
-    if (R==f64) { if (rare{abs{extract{cv,0}} >= maxFastA}) goto{'end'} }
+    if (R==f64) { if (rare{__abs{extract{cv,0}} >= maxFastA}) goto{'end'} }
     else        { if (rare{extract{absu{half{cv,0}},0} > maxFastA}) goto{'end'} }
     
     i2:= i+bulk
@@ -494,7 +494,7 @@ def loop_with_unaligned_mask{x, r, nw, l, step} = {
   }
 }
 def vec_loop_with_unaligned_mask{xp, rp, nw, l, scan_words, apply_carry} = {
-  def vl = arch_defvw / 64
+  def vl = arch_defvw{} / 64
   def V = [vl]u64
   {ms, d} := unaligned_spaced_mask_mod{l}
   d4:usz = width{V} % l
@@ -513,7 +513,7 @@ def vec_loop_with_unaligned_mask{xp, rp, nw, l, scan_words, apply_carry} = {
 }
 def vec_loop_with_loose_mask{xp, rp, nw, l, id, scan_words, propagate, fix_carry, apply_carry} = {
   assert{l >= 64}
-  def vl = arch_defvw / 64
+  def vl = arch_defvw{} / 64
   def V = [vl]u64
   def get_m = loose_mask_gen{V, l}
   c := V**id  # carry, 0 or 1
@@ -556,7 +556,7 @@ fn scan_rows_andor{id}(src:*u64, dst:*u64, nl:usz, l:usz) : void = {
     if (qand) s & (~f | c) else s | (f & c)
   }
   if (l < 64) {
-    if ((l & (l-1)) == 0) {
+    if (is_pow2{l}) {
       if (l == 2) {
         @for (r in dst, x in src over nw) {
           r = (if (qand) x & (x<<1 | 64w2b01) else x | (x<<1 & 64w2b10))
@@ -600,7 +600,7 @@ fn scan_rows_andor{id}(src:*u64, dst:*u64, nl:usz, l:usz) : void = {
     i :usz = 0  # row bit index
     wn:usz = 0  # starting word of next row
     c:u64 = id  # carry
-    def word{bit} = bit * ((1<<64) - 1)
+    def word{bit} = bit * tail{64}
     we:= nl/64; while (wn < we) {
       iw:= wn
       r := res_m1{load{src, iw}, c, u64~~1 << (i%64)}
@@ -637,7 +637,7 @@ fn scan_rows_neq(x:*u64, r:*u64, nl:usz, l:usz) : void = {
       b:= s<<1 & m  # last bit of previous row
       s ^ (b<<l - b)
     }
-    if ((l & (l-1)) == 0) {
+    if (is_pow2{l}) {
       m:u64 = aligned_spaced_mask{l}
       @for (r, x over nw) r = apply_mask{scan_word{x}, m}
     } else if (has_simd) {
@@ -690,7 +690,7 @@ fn scan_rows_left(x:*u64, r:*u64, nl:usz, l:usz) : void = {
   def apply_carry{s, c, f} = s | (f & c)
   if (l < 64) {
     def apply_mask{x, m} = { b:= x & m; b<<l - b }
-    if ((l & (l-1)) == 0) {
+    if (is_pow2{l}) {
       m:u64 = aligned_spaced_mask{l}
       @for (r, x over nw) r = apply_mask{x, m}
     } else if (has_simd) {
@@ -740,7 +740,7 @@ fn scan_stride_bool_assoc{op}(x:*u64, r:*u64, nl:usz, l:usz) : void = {
   def {flip,opf} = if (same{op, &}) tup{~,|} else tup{{x}=>x,op} # such that identity of opf is 0
   nw:= cdiv{nl, 64}
   if (l <= 64) {
-    if (same{op, ^} and hasarch{'PCLMUL'} and (l & (l-1)) == 0) {
+    if (same{op, ^} and hasarch{'PCLMUL'} and is_pow2{l}) {
       clmul_scan_ne_any{}(*void~~x, *void~~r, 0, nw, aligned_spaced_mask{l})
       return{}
     }

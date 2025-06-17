@@ -21,6 +21,9 @@
 #ifndef RANDSEED
   #define RANDSEED 0
 #endif
+#ifndef DEBUG
+  #define DEBUG 0
+#endif
 #ifndef FFI
   #define FFI 2
   #ifndef CBQN_EXPORT
@@ -162,7 +165,7 @@ typedef size_t ux;
 #if USZ_64
   typedef u64 usz;
   #define USZ_MAX ((u64)(1ULL<<48))
-  #define CHECK_IA(IA,W) if((IA) > USZ_MAX) thrOOM()
+  #define CHECK_IA(IA,W) if((IA) >= USZ_MAX) thrOOM()
 #else
   typedef u32 usz;
   #define USZ_MAX ((u32)((1LL<<32)-1))
@@ -264,10 +267,12 @@ enum Type {
   #undef F
   t_COUNT
 };
-#define IS_ANY_ARR(T) ((T)>=t_hslice & (T)<=t_bitarr)
-#define IS_DIRECT_TYARR(T) (((T)>=t_i8arr) & ((T)<=t_bitarr))
-#define IS_SLICE(T) ((T)<=t_f64slice)
-#define TO_SLICE(T) ((T) + t_hslice - t_harr) // Assumes T!=t_bitarr
+#define IS_ANY_ARR(T) ({ u8 ct_=(T); ct_>=t_hslice & ct_<=t_bitarr; })
+#define IS_DIRECT_TYARR(T) ({ u8 ct_=(T); ct_>=t_i8arr & ct_<=t_bitarr; })
+#define ARR_IS_SLICE(T) ((T)<=t_f64slice)
+#define IS_TYSLICE(T) ({ u8 ct_=(T); ct_>=t_i8slice & ct_<=t_f64slice; })
+#define ARR_TO_SLICE(T) ((T) + t_hslice - t_harr) // requires T!=t_bitarr
+#define SLICE_TO_ARR(T) ((T) + t_harr - t_hslice)
 
 enum ElType { // if X can store a superset of elements of Y, X > Y
   el_bit=0,
@@ -304,7 +309,9 @@ typedef struct Arr {
 
 #if DEBUG
   NOINLINE NORETURN void assert_fail(char* expr, char* file, int line, const char fn[]);
-  #define assert(X) do {if (!(X)) assert_fail(#X, __FILE__, __LINE__, __PRETTY_FUNCTION__);} while(0)
+  #define assert_impl(M, X) do {if (!(X)) assert_fail(M, __FILE__, __LINE__, __PRETTY_FUNCTION__);} while(0)
+  #define assert(X) assert_impl(#X, X)
+  #define debug_assert(X) assert_impl(#X, X)
   B VALIDATE(B x);
   Value* VALIDATEP(Value* x);
   #define UD assert(false)
@@ -313,15 +320,28 @@ typedef struct Arr {
   #define NOGC_CHECK(M) do { if (cbqn_noAlloc && !gc_depth) fatal(M); } while (0)
   #define NOGC_S cbqn_NOGC_start()
   #define NOGC_E cbqn_noAlloc=false
+  #define HEURISTIC_BOUNDED(X, TRUE_REQ, FALSE_REQ) ({ bool hb_ = (X); assert(hb_? (TRUE_REQ) : (FALSE_REQ)); hb_; })
 #else
   #define assert(X) do {if (!(X)) __builtin_unreachable();} while(0)
+  #define debug_assert(X)
   #define VALIDATE(X) (X)
   #define VALIDATEP(X) (X)
   #define UD __builtin_unreachable()
   #define NOGC_S
   #define NOGC_E
   #define NOGC_CHECK(M)
+  #define HEURISTIC_BOUNDED(X, TRUE_REQ, FALSE_REQ) (X)
 #endif
+#if RANDOMIZE_HEURISTICS
+  bool heuristic_rand(bool heuristic, bool true_req, bool false_req);
+  #undef HEURISTIC_BOUNDED
+  #define HEURISTIC_BOUNDED(X, TRUE_REQ, FALSE_REQ) heuristic_rand(X, TRUE_REQ, FALSE_REQ)
+#else
+  #define RANDOMIZE_HEURISTICS 0
+#endif
+#define HEURISTIC(X) HEURISTIC_BOUNDED(X, true, true)
+#define MAY_T(X) ({ bool hw_=(X); HEURISTIC_BOUNDED(hw_, true, !hw_); }) // returns X, or, with randomized heuristics enabled, possibly true
+#define MAY_F(X) ({ bool hw_=(X); HEURISTIC_BOUNDED(hw_, hw_,  true); }) // returns X, or, with randomized heuristics enabled, possibly false
 #if WARN_SLOW
   void warn_slow1(char* s, B x);
   void warn_slow2(char* s, B w, B x);
@@ -640,16 +660,12 @@ static inline B inc(B x) {
   return x;
 }
 static inline void decG(B x) {
-  #if DEBUG
-    assert(isVal(x) && v(x)->refc>0);
-  #endif
+  if (DEBUG) assert(isVal(x) && v(x)->refc>0);
   Value* vx = v(x);
   if(!--vx->refc) value_free(vx);
 }
 FORCE_INLINE void ptr_decT(Arr* x) { // assumes argument is an array and consists of non-heap-allocated elements
-  #if DEBUG
-    assert(x->refc>0);
-  #endif
+  if (DEBUG) assert(x->refc>0);
   if (x->refc==1) TIv(x,freeT)((Value*) x);
   else x->refc--;
 }
@@ -691,27 +707,25 @@ static B c2(B f, B w, B x) { // BQN-call f dyadically; consumes w,x
   if (isFun(f)) return VALIDATE(VRES(c(Fun,f)->c2(f, VRES(w), VRES(x))));
   return c2F(f, w, x);
 }
-static void errMd(B x) { if(RARE(isMd(x))) thrM("Calling a modifier"); }
+static B errMd(B x) { if (RARE(isMd(x))) thrM("Calling a modifier"); return x; }
 // like c1/c2, but with less overhead on non-functions
 SHOULD_INLINE B c1I(B f, B x) {
   if (isFun(f)) return VALIDATE(c(Fun,f)->c1(f, x));
-  dec(x); errMd(f);
-  return inc(f);
+  dec(x);
+  return inc(errMd(f));
 }
 SHOULD_INLINE B c2I(B f, B w, B x) {
   if (isFun(f)) return VALIDATE(c(Fun,f)->c2(f, w, x));
-  dec(w); dec(x); errMd(f);
-  return inc(f);
+  dec(w); dec(x);
+  return inc(errMd(f));
 }
 static B c1iX(B f, B x) { // c1 with inc(x)
   if (isFun(f)) return VALIDATE(c(Fun,f)->c1(f, inc(x)));
-  errMd(f);
-  return inc(f);
+  return inc(errMd(f));
 }
 static B c2iWX(B f, B w, B x) { // c2 with inc(w), inc(x)
   if (isFun(f)) return VALIDATE(c(Fun,f)->c2(f, inc(w), inc(x)));
-  errMd(f);
-  return inc(f);
+  return inc(errMd(f));
 }
 
 static B c1G(B f,      B x) { assert(isFun(f)); return c(Fun,f)->c1(f,    x); }

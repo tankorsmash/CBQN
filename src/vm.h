@@ -1,4 +1,5 @@
 #pragma once
+#include "utils/mem.h"
 #if !NO_MMAP
 #include <sys/mman.h>
 #endif
@@ -177,12 +178,14 @@ static B execBlockInplace(Block* block, Scope* sc) { // doesn't consume; execute
 #if JIT_START != -1
 NOINLINE B mnvmExecBodyInplace(Body* body, Scope* sc);
 #endif
+extern bool jit_enabled;
 FORCE_INLINE B execBodyInplaceI(Body* body, Scope* sc, Block* block) { // consumes sc, unlike execBlockInplace
+  debug_assert(body->bl == block);
   #if JIT_START != -1
     if (LIKELY(body->nvm != NULL)) return evalJIT(body, sc, body->nvm);
     bool jit = true;
     #if JIT_START > 0
-      jit = body->callCount++ >= JIT_START;
+      jit = body->callCount++ == JIT_START;
     #endif
     // jit = body->bc[2]==m_f64(123456).u>>32; // enable JIT for blocks starting with `123456⋄`
     if (jit) return mnvmExecBodyInplace(body, sc);
@@ -216,7 +219,7 @@ B m_md2Block(Block* bl, Scope* psc);
 
 
 typedef struct Env {
-  u64 pos; // if top bit set, ((u32)pos)>>1 is an offset into bytecode; otherwise, it's a pointer in the bytecode
+  u64 pos; // if (pos&1)!=0, ((u32)pos)>>1 is an offset into bytecode; otherwise, it's a pointer in the bytecode
   Scope* sc;
 } Env;
 extern GLOBAL Env* envCurr;
@@ -246,7 +249,6 @@ NOINLINE B vm_fmtPoint(B src, B prepend, B path, usz cs, usz ce); // consumes pr
 NOINLINE void printErrMsg(B msg);
 NOINLINE void unwindEnv(Env* envNew); // envNew==envStart-1 for emptying the env stack
 NOINLINE void unwindCompiler(void); // unwind to the env of the invocation of the compiler; UB when not in compiler!
-ux getPageSize(void);
 
 
 

@@ -1,10 +1,7 @@
-# make o3-singeli f=-DTEST_BITCPY && ./BQN test/bitcpy.bqn
+### WHOLE-FILE-TEST
+# tests bit_cpy
+r ← (⊑•args).GetRand@
 ⟨Temp, Type, Unshare, Squeeze, Info, Variation⟩ ← •internal
-u ← ⌊100×(•UnixTime+1|100×•MonoTime)@
-# u ↩ 123
-
-r ← •MakeRand •Show u
-
 
 Do ← { 𝕊:
   al ← 1+r.Range 500
@@ -21,7 +18,7 @@ Do ← { 𝕊:
     i ← ↕bl
     exp ← ((bs+i)⊏b)⌾((as+i)⊸⊏) a
     aC ← Unshare a
-    Temp ⟨aC, as, b, bs, bl⟩
+    202 Temp ⟨aC, as, b, bs, bl⟩
     aC ≢ exp?
       •Out "Fail:"
       F ← {(¬ ·∧`⌾⌽ ' '⊸=)⊸/ ⥊' '∾˘˜ ↑‿64⥊ '0'+𝕩}
@@ -33,10 +30,10 @@ Do ← { 𝕊:
       •Out "x:   "∾F b
       •Out "xs:  "∾•Repr bs
       •Out "l:   "∾•Repr bl
-      •Exit 1
+      !0
     ;0
   }∘@⍟500 @
   ! a ≡ aT
 }
 
-@∘Do⍟(⊑(•BQN¨•args)∾2000) @
+@∘Do⍟2000 @

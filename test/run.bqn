@@ -15,6 +15,7 @@ Trim ← {((∨`⌾⌽∧∨`)𝕩≠' ')/𝕩}
   •Out "  update-messages  Auto-update error messages in tests"
   •Out "  ignore-messages  Don't warn about incorrect error messages"
   •Out "  bin-search       Binary search for some property. Next argument should be /[01]*/, with a 1 appended every time the property is matched, and a 0 otherwise"
+  •Out "  seed=123         Random seed for tests that care (default=1; seed=u will choose a random seed)"
   •Exit 0
 }⍟⊢ (0=≠•args) ∨´ "help"‿"h"‿"?"∊'-'⊸≠⊸/¨•args
 
@@ -28,8 +29,9 @@ o ← {
     search ↩ search∾1
     args ↩ (¬n∨𝕩)/args
   }⍟(∨´) "bin-search"⊸≡¨ args
-  named ← "run"‿"lint"‿"update-messages"‿"slow"‿"ignore-messages"‿"noerr"‿"heapverify"‿"debug"‿"no-catch"
-  i ← named⊐args
+  
+  named ← "run"‿"lint"‿"update-messages"‿"slow"‿"ignore-messages"‿"noerr"‿"heapverify"‿"debug"‿"no-catch"‿"seed"
+  i ← named⊐{𝕩↑˜⊑𝕩⊐'='}¨ args
   run    ⇐ ∨´i=0
   lint   ⇐ ∨´i=1
   update ⇐ ∨´i=2
@@ -39,11 +41,22 @@ o ← {
   heapverify ⇐ ∨´i=6
   debug      ⇐ ∨´i=7
   noCatch    ⇐ ∨´i=8
+  seed ⇐ {
+    ⟨⟩: 1;
+    ⟨"u"⟩: s←•rand.Range 2⋆31 ⋄ •Out "seed="∾•Repr s ⋄ s;
+    ⟨s⟩: •ParseFloat s
+  } 5↓¨ (i=9)/args
   
-  pr ← 32‿0‿0 {𝕩∾(≠𝕩)↓𝕨} {⟨P⇐Properties⟩: 3↑@P@; ⟨⟩} •internal
-  usz ⇐ 0⊑pr
-  properFills ⇐ 1⊑pr
-  eachFills   ⇐ 2⊑pr
+  ⟨
+    usz
+    properFills
+    eachFills
+    randomizeHeuristics
+    knownHeapverify
+    knownDebug
+    hasTestUtils
+  ⟩ ⇐ 32‿0‿0‿0‿0‿0‿0 {(≠𝕨)↑ 𝕩 ∾ (≠𝕩)↓𝕨} {⟨P⇐Properties⟩: @P@; ⟨⟩} •internal
+  
   noerr∨↩ heapverify
   update∧↩ ¬heapverify
   files ⇐ (i=≠named)/args
@@ -64,7 +77,16 @@ searchRefine ← {
 
 exitCode ← 0
 Run ← { 𝕊 testname:
-  lns ← •FLines fullfile ← "cases"•file.At filename ← ".bqn" ∾˜⍟(⊣≢-∘≠⊸↑) testname
+  filename ← testname
+  filename ".bqn"⊸(∾˜⍟(⊣≢-∘≠⊸↑))↩
+  filename "test/cases/"⊸(≠⊸↓⍟(⊣≡≠⊸↑))↩
+  lns ← •FLines fullfile ← "cases"•file.At filename
+  {
+    1≤≠lns?
+    "### WHOLE-FILE-TEST" ≡ ⊑lns?
+    lns ↩ ⟨"("⟩∾(1↓lns)∾⟨")"⟩
+    ;@
+  }
   defk‿defv ← ⟨"IS_HEAPVERIFY"⟩‿⟨"heapverify←"∾•Repr o.heapverify⟩
   i ← 0
   Pos ← {∾⟨filename, ":", •Repr 1+𝕩⟩}
@@ -76,7 +98,7 @@ Run ← { 𝕊 testname:
     ;
       "":@
     ;
-      '#'≡⊑𝕩? @
+      '#'≡⊑𝕩? ¬⊑(@+10)∊𝕩? @
     ;
       "("≡𝕩?
         Process ∾ ∾⟜(@+10)¨ ¯1↓ ∾⟜<⟜Next•_while_{")"≢¯1⊑𝕩} ⟨Next@⟩
@@ -105,6 +127,7 @@ Run ← { 𝕊 testname:
         enabled∧↩ {0‿0: 1; 1‿0: o.eachFills  ; 0‿1: ¬o.eachFills  } Flag¨ "%EACH_FILLS"‿"%!EACH_FILLS"
         enabled∧↩ {0‿0: 1; 1‿0: o.usz=32; 0‿1: o.usz=64} Flag¨ "%USZ32"‿"%USZ64"
         enabled∧↩ {0‿0: 1; 1‿0: o.usz=32; 0‿1: o.usz=64} Flag¨ "%USZ32"‿"%EACHFILLS"
+        enabled∧↩ ¬ o.noerr ∧ (⊑'⎊'∊str) ∧ ¬Flag "%ALLOW_CATCH"
         
         ln ⇐ i-1
         str ⇐ str # at end to let Flag have updated it
@@ -129,7 +152,7 @@ Run ← { 𝕊 testname:
     ty←1⊑d
     Lint ← {𝕊: •Out ∾⟨"Lint: ", Pos ln, ": ", 𝕨⟩}⍟(¬⊢)
     {
-      "eval"≡ty? "No check or assert" Lint ∨´'!'=2⊑d;
+      "eval"≡ty? "No check or assert" Lint (∨´"_eqvar"⍷2⊑d) ∨ ∨´'!'=2⊑d;
       @
     }
   }¨⍟o.lint tests
@@ -138,7 +161,6 @@ Run ← { 𝕊 testname:
     badCount ← 0
     badMessage ← 0
     currLn ← 0
-    skipped ← 0
     dir ← •file.At "testDir"
     •file.CreateDir⍟(¬•file.Exists) dir
     Bad ← {
@@ -148,18 +170,27 @@ Run ← { 𝕊 testname:
       badCount+↩ 1
     }
     ErrMsg ← {𝕊: m←•CurrentError@ ⋄ {1==m? ∧´2=•Type¨m? m; •Repr⎊"(unrepresentable)" m}}
-    Eval ← {⟨dir, ∾⟨testname,"_line_",•Repr currLn+1,".bqn"⟩, ⟨"arg0",1⟩⟩ •BQN 𝕩}
-    EvalS ← •BQN⎊{𝕊: Bad "Bad comparison value" ⋄ "(bad)"}
+    
+    PreEval ← ⊢
+    _addPreEval ← {𝕩? PreEval↩PreEval 𝔽; @}
+    {𝕊: 1 •internal.Temp o.seed}_addPreEval o.randomizeHeuristics
+    
+    Eval ← {
+      currTestState ↩ @
+      PreEval@
+      ⟨dir, ∾⟨testname,"_line_",•Repr currLn+1,".bqn"⟩, ⟨helpers,"arg0",1⟩⟩ •BQN 𝕩
+    }
+    EvalS ← •BQN⎊{𝕊: Bad "Computing expected value errored" ⋄ "(could not compute expected value)"}
+    
     toRun ← tests
     toRun {{𝕩.enabled}∘⊑¨⊸/𝕩}↩
-    skipped+↩ (≠tests)-≠toRun
+    skipped ← (≠tests)-≠toRun
     results ← {
-      "eval"‿str: {
-        o.noerr? ⊑'⎊'∊str? skipped+↩1;
+      ns‿"eval"‿str: {
         Eval _catch_ {𝕊: Bad "Expected success, got error: "∾ErrMsg@} str
         @
       };
-      "error"‿str‿exp: {
+      ·‿"error"‿str‿exp: {
         o.noerr? skipped+↩1;
         ok‿got ← (1⋈Eval)⎊(0⋈ErrMsg) str
         exp ↩ EvalS⍟{×≠Trim𝕩} exp
@@ -171,8 +202,7 @@ Run ← { 𝕊 testname:
           got
         }
       };
-      "equal"‿str‿exp: {
-        o.noerr? ⊑'⎊'∊str? skipped+↩1;
+      ns‿"equal"‿str‿exp: {
         ok‿got ← (1⋈Eval)_catch_(0⋈ErrMsg) str
         exp ↩ EvalS exp
         {
@@ -183,7 +213,7 @@ Run ← { 𝕊 testname:
         }
         @
       }
-    }∘{currLn↩(⊑𝕩).ln ⋄ 1↓𝕩}¨ toRun
+    }∘{currLn↩(⊑𝕩).ln ⋄ 𝕩}¨ toRun
     
     {𝕊:
       res‿desc ← ({@≡𝕩? 0; (¬⊑(@+10)∊𝕩) ∧ ¬∨´"TEST FAIL"⍷𝕩}¨ results)⊸/¨ results‿toRun
@@ -207,6 +237,59 @@ Run ← { 𝕊 testname:
     }
   }⍟o.run @
 }
+
+currTestState ← @
+GetTestState ← @⊸≡◶⊢‿{ 𝕊:
+  currTestState ↩ {
+    rand ⇐ •MakeRand o.seed
+  }
+} {𝕊: currTestState}
+
+helpers ← {
+  ⟨TV⇐Variation, CLR⇐ClearRefs, HasFill, EEqual, ListVariations⟩ ← •internal
+  indistinguishable ← {⟨I⇐Indistinguishable⟩: I; EEqual} •internal
+  _tvar0_ ⇐ {
+      F _𝕣_ LV x: (CLR@) ⊢        {         F 𝕩 TV x}¨ LV 𝕩;
+    w F _𝕣_ LV x: (CLR@) ⊢ (LV 𝕨) {(𝕨 TV w) F 𝕩 TV x}⌜ LV 𝕩
+  }
+  
+  shouldNotError ⇐ o.noerr
+  
+  {o.heapverify? Indistinguishable↩EEqual; @}
+  Classify ← {(≢𝕩)⥊ ⊐Indistinguishable⌜˜ ⥊𝕩}
+  
+  _eqvar0_ ⇐ { LV ← 𝔾
+    r ← 𝕨 𝔽 _tvar0_ 𝔾 𝕩
+    class ← {·𝕊·: 𝕨+2×𝕩; 𝕊·: 𝕩} c0←(≢r) {HasFill 𝕩? 'h' = 1⊸⊑¨ LV 𝕩; 𝕨⥊0}¨ args←𝕨⋈𝕩
+    (⊑r)⊸("failed eqvar eequal" ! EEqual)¨ 1↓⥊r
+    {
+      r0 ← ⊑𝕩
+      {
+        r0 Indistinguishable 𝕩?
+          1;
+        
+        classes ← {
+          ⟨a⟩: (@+10)∾ •Fmt "type"‿"class" ∾˘ a ≍ Classify r;
+          wc‿xc:
+            wv‿xv ← LV¨ args
+            wc‿xc+↩'A'
+            "row=type of 𝕨, col=type of 𝕩:" ∾ ∾⟨@+10,' ',' '⟩⊸∾¨ ⟨∾⟨"\|",xc," ==",∾' '⊸∾¨xv⟩⟩ ∾ (wc⋈¨wv) {c‿v𝕊𝕩: c ∾ '|' ∾ 𝕩 ∾ ' ' ∾ v}¨ <˘ '0'+Classify r
+        } c0
+        ! "TEST FAIL: _eqvar0_ failed: "∾classes
+      }¨ 𝕩
+    }¨ class ⊔ r
+    ⊑r
+  }
+  
+  GetRand ⇐ {𝕊: •MakeRand (GetTestState@).rand.Range 1e9}
+  
+  AtRoot ⇐ {𝕊: •file.At 𝕩}
+  Import ⇐ {𝕊: 𝕨 •Import •file.At 𝕩}
+  
+  _eqvar ⇐ {𝔽 _eqvar0_ ListVariations}
+  _eqvarv_ ⇐ {𝔽 _eqvar0_ (𝕘⊸ListVariations)}
+}
+
 Run¨ SearchRefine o.files
 
 •Exit⍟(0⊸≠)⍟(¬o.heapverify) exitCode

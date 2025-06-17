@@ -1,6 +1,5 @@
 include './base'
 include './mask'
-if_inline (hasarch{'BMI2'}) include './bmi'
 include './spaced'
 include './scan_common'
 include './vecfold'
@@ -30,7 +29,7 @@ fn fold_idem{T, op}(x:*T, len:u64) : T = {
   a
 }
 fn fold_idem{T==f64, op if has_simd}(x:*T, len:u64) : T = {
-  def bulk = arch_defvw/width{T}
+  def bulk = arch_defvw{}/width{T}
   def V = [bulk]T
   xv:= *V ~~ x
   r:V = [bulk]f64**0
@@ -54,8 +53,8 @@ fn fold_idem{T==f64, op if has_simd}(x:*T, len:u64) : T = {
   extract{r, 0}
 }
 
-export{'si_fold_min_f64', fold_idem{f64,min}}
-export{'si_fold_max_f64', fold_idem{f64,max}}
+export{'si_fold_min_f64', fold_idem{f64,__min}}
+export{'si_fold_max_f64', fold_idem{f64,__max}}
 
 fn fold_assoc_0{T, op}(x:*T, len:u64) : T = {
   a:T = 0
@@ -63,7 +62,7 @@ fn fold_assoc_0{T, op}(x:*T, len:u64) : T = {
   a
 }
 fn fold_assoc_0{T==f64, op if has_simd}(x:*T, len:u64) : T = {
-  def bulk = arch_defvw/width{T}
+  def bulk = arch_defvw{}/width{T}
   def V = [bulk]T
   xv:= *V ~~ x
   e:= len / bulk
@@ -76,7 +75,7 @@ export{'si_sum_f64', fold_assoc_0{f64,+}}
 
 
 def extract_column_pow2{T, x0, r0, nv, k} = {
-  def V = [arch_defvw / width{T}]T
+  def V = [arch_defvw{} / width{T}]T
   xv := *V~~x0
   @for (r in *V~~r0 over i to nv) {
     xs := each{load{xv, .}, iota{k}}
@@ -88,7 +87,7 @@ def extract_column_pow2{T, x0, r0, nv, k} = {
         m := make{V, - (iota{vcount{V}}%k == 0)}
         xs = each{&{m, .}, xs} # Mask off high bits
         def D = el_m{V}
-        {a, b} => packQ{D~~a, D~~b}
+        {a, b} => packs128{D~~a, D~~b}
       } else {
         # Two-vector shuffles
         # Could also be used for 1/2-byte with ending gap >= 4 bytes,
@@ -106,10 +105,10 @@ def extract_column_pow2{T, x0, r0, nv, k} = {
       def f = tree_fold{unzip0{32}, .}
       def proc{hx} = {
         ri := D~~f{hx}
-        top := D**(1<<15); m := D**(1<<16 - 1)
+        top := D**(1<<15); m := D**tail{16}
         (ri & m) | (D~~(ri&top == top) &~ m)
       }
-      r = V~~packQ{...each{proc, split{k/2, xs}}}
+      r = V~~packs128{each{proc, split{k/2, xs}}}
     }
     if (width{V} > 128) { # Lane axis wasn't packed, need to shuffle to bottom
       def tr{E,a, r} = shuf{[1<<a]E, r, tr_iota{shiftright{a-1, iota{a}}}}
@@ -129,7 +128,7 @@ def extract_column_modperm{x0, r0, nv, l, el, vl} = {
   e  := p2 + promote{ux,el} # Absorb into element size for most computation
   l8 := cast_i{u8, l}
   li := cast_i{u8, l + 2 * ((l-1) + (l&2))}  # Inverse mod vl
-  elo:= V**(u8~~1<<e - 1)
+  elo:= V**tail{u8, e}
   ie := iota{V} & elo
   kmul := make{H, 2*iota{vl/2}} &~ H~~elo
   def mu16{k} = {
@@ -202,10 +201,10 @@ def extract_column_modperm{x0, r0, nv, l, el, vl} = {
     # Shuffle to undo interleaving of add_res
     def __shr{x:(V), sh if hasarch{'X86_64'}} = V~~(H~~x >> sh)
     def __shl{x:(V), sh if hasarch{'X86_64'}} = V~~(H~~x << sh)
-    def __shr{x:(V), sh:T if hasarch{'AARCH64'} and not isvec{T}} = x << V**cast_i{u8,-sh}
-    def __shl{x:(V), sh:T if hasarch{'AARCH64'} and not isvec{T}} = x << V**cast_i{u8, sh}
+    def __shr{x:(V), sh:T if hasarch{'AARCH64'} and not vect{T}} = x << V**cast_i{u8,-sh}
+    def __shl{x:(V), sh:T if hasarch{'AARCH64'} and not vect{T}} = x << V**cast_i{u8, sh}
     def uz_lane = {
-      l  := V**(u8~~1<<el - 1)
+      l  := V**tail{u8, el}
       h  := V**(16 - u8~~16>>p2)
       dz := (il & l) | (h &~ il)>>(4-e) # low, high->middle
       dz |= (il &~ (l | h))<<p2         # middle->high
@@ -223,7 +222,7 @@ def extract_column_modperm{x0, r0, nv, l, el, vl} = {
       shuf{[8]u32, ., cr}
     }
     # Run, writing every 1<<p2 steps
-    plo := usz~~1<<p2 - 1
+    plo := tail{usz, p2}
     loop{{r, i, write} => {
       def ra = add_res{r}
       if ((plo &~ i) == 0) write{cross{uz_lane{ra}}}
@@ -235,11 +234,11 @@ def extract_column_modperm{x0, r0, nv, l, el, vl} = {
 # Maximum of n result values, return actual number written
 fn extract_column(x0:*void, r0:*void, n:usz, l:usz, el:u8) : usz = {
   n <<= el
-  def vl = arch_defvw / 8
-  def thr = min{vl+2, 20}
+  def vl = arch_defvw{} / 8
+  def thr = __min{vl+2, 20}
   if ((not has_simd) or n < vl or l > usz~~thr>>el or l<<el >= thr) return{0}
   nv := n / vl
-  if (has_simd and (l & (l-1)) == 0) {
+  if (has_simd and is_pow2{l}) {
     def try_unzip{T, k} = if (k < thr and l == k) {
       extract_column_pow2{T, x0, r0, nv, k}
       goto{'ret'}
@@ -275,7 +274,7 @@ def fold_rows_bit_lt64{
       # repeated shift-or-mask
       def step{x, {m, sh}} = { def a=x&m; a|a>>sh }
       def ss = 1<<iota{5}
-      def ms = (1<<64 - 1) / (1 + 1<<ss)
+      def ms = tail{64} / (1 + 1<<ss)
       fold{step, ., each{tup, ms, ss}}
     } 
     run_loop2{{op} => loop_T{u32, {x} => extract{op{x, x>>1}}}}
@@ -319,8 +318,8 @@ def fold_rows_bit_lt64{
       # Emulate pext with 1, 2, or 3 multiply/mask steps.
       # To move size-a groups spaced at distance b together,
       # the multiplier has up to b/a bits spaced by b-a.
-      dm:= cast_i{usz, popc{el}}      # minimum output bits per word
-      dm-= promote{usz, l&(l-1) == 0} # for divisors of 64, e0 effectively overflows; subtract 1 to correct
+      dm:= cast_i{usz, popc{el}}    # minimum output bits per word
+      dm-= promote{usz, is_pow2{l}} # for divisors of 64, e0 effectively overflows; subtract 1 to correct
       def loop{...par} = {
         et:= e0 << clz{e0}
         @for (xo in xp over nw) {
@@ -352,7 +351,7 @@ def fold_rows_bit_lt64{
         assert{l > 4}
         ld:= l-1; lld:= l*ld
         {mult0, _} := unaligned_spaced_mask_mod{ld}
-        mult0 &= u64~~1<<lld - 1
+        mult0 &= tail{u64, lld}
         {mult1, _} := unaligned_spaced_mask_mod{lld}
         ll:= l*l
         {tk, tkd} := unaligned_spaced_mask_mod{ll}; tk <<= tkd
@@ -360,7 +359,7 @@ def fold_rows_bit_lt64{
         loop{tup{mult0,mult1}, tup{topk}}
       } else {
         {mult, _} := unaligned_spaced_mask_mod{l-1}
-        if (l==8) mult &= 1<<(7*8) - 1
+        if (l==8) mult &= tail{7*8}
         loop{tup{mult}, tup{}}
       }
     }
@@ -530,7 +529,7 @@ fn sum_small{T if has_simd}(xv:*void, ia:usz) : i64 = {
   def A = if (width{T}<=16) i32 else i64
   xv:= *T~~xv
   def unr = 4
-  def bulk = arch_defvw / width{T}
+  def bulk = arch_defvw{} / width{T}
   def V = [bulk]T
   
   def acc = sum_accumulator{A, unr, V}

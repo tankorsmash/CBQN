@@ -1,8 +1,8 @@
 %DEF var V←•internal.Variation ⋄ LV←•internal.ListVariations ⋄ CLR←•internal.ClearRefs
 %DEF tvar %USE var ⋄ _tvar ← {F _𝕣 x: (CLR@) ⊢ {F 𝕩 V x}¨ LV 𝕩; w F _𝕣 x: (CLR@) ⊢ (LV 𝕨) {(𝕨 V w) F 𝕩 V x}⌜ LV 𝕩}
-%DEF eqvar %USE tvar ⋄ _eqvar ← {r ← 𝕨 𝔽 _tvar 𝕩 ⋄ !∘≡⟜(⊑r)¨ r ⋄ ⊑r}
-%DEF evar %USE tvar ⋄ _evar ← {ok←{⇐} ⋄ r←⥊𝕨 ok∘𝔽⎊{𝕊: •CurrentError@} _tvar 𝕩 ⋄ {⊑ok∊r? !"TEST FAIL: variation didn't error"; ("TEST FAIL: varying error messages"⊸⋈ ! 1=≠)⍷r ⋄ !⊑r}}
-%DEF eqerr %USE eqvar ⋄ _eqerr ← {ok←{⇐} ⋄ r←⥊𝕨 ok∘𝔽⎊{𝕊: •CurrentError@}⌜ 𝕩 ⋄ {⊑ok∊r? !"TEST FAIL: case didn't error"; ("TEST FAIL: varying error messages"⊸⋈ ! 1=≠)⍷r ⋄ !⊑r}}
+%DEF eqvar ⟨_eqvar⟩←⊑•args
+%DEF evar %USE tvar ⋄ _evar ← {ok←{⇐} ⋄ r←⥊𝕨 ok∘𝔽⎊{𝕊: •CurrentError@} _tvar 𝕩 ⋄ {⊑ok∊r? !"TEST FAIL: variation didn't error"; ("TEST FAIL: varying error messages"⊸⋈ ! 1=≠)⍷r ⋄ (⊑r)!0}}
+%DEF eqerr %USE eqvar ⋄ _eqerr ← {ok←{⇐} ⋄ r←⥊𝕨 ok∘𝔽⎊{𝕊: •CurrentError@}⌜ 𝕩 ⋄ {⊑ok∊r? !"TEST FAIL: case didn't error"; ("TEST FAIL: varying error messages"⊸⋈ ! 1=≠)⍷r ⋄ (⊑r)!0}}
 %DEF k _k ← {𝔽○•internal.Keep}
 %DEF pk _pk ← {𝔽○•internal.PureKeep}
 
@@ -14,6 +14,9 @@
 %USE k ⋄ n←1 ⋄ ≠{𝕊: (•Repr a) ! (≡⎉n ≡ ≡_k⎉n)´ a←(⊏⟜(3‿2‿2⥊'a'+↕26))¨ <˘ 2‿2‿2‿2•rand.Range 3}¨ ↕1000
 %USE k ⋄ n←2 ⋄ ≠{𝕊: (•Repr a) ! (≡⎉n ≡ ≡_k⎉n)´ a←(⊏⟜(3‿2‿2⥊'a'+↕26))¨ <˘ 2‿2‿2‿2•rand.Range 3}¨ ↕1000
 %USE k ⋄ n←3 ⋄ ≠{𝕊: (•Repr a) ! (≡⎉n ≡ ≡_k⎉n)´ a←(⊏⟜(3‿2‿2⥊'a'+↕26))¨ <˘ 2‿2‿2‿2•rand.Range 3}¨ ↕1000
+%USE eqvar ⋄ ⟨1, 0÷0⟩ ≡⎉1 _eqvar 10‿2⥊1‿0‿1∾0÷0 %% 10⥊0
+%USE eqvar ⋄ (10‿2⥊1‿0÷0) ≡⎉1 _eqvar 10‿2⥊1‿0‿1‿¯1÷0 %% 10⥊0
+(10‿1⥊1‿0÷0) ≡⎉1 10‿1⥊1‿1‿0‿0÷0 %% 10⥊1‿0‿0‿0
 ≠{𝕊k: ! (3⊸↑⎉k ≡ {3↑𝕩}⎉k) 2‿2‿2‿2⥊↕16}¨ ¯2+↕10
 ≠{𝕊k: ! (1⊸↓⎉k ≡ {1↓𝕩}⎉k) 3‿3‿3‿3⥊↕81}¨ ¯2+↕10
 
@@ -22,8 +25,8 @@
 !"⎉: Result rank too large" % (1⥊˜ 0∾204⥊2)⎉50 1⥊˜ 0∾100⥊2
 !"𝔽⎉𝕘: Result rank too large (204 ≡ =𝕩, 200 ≡ =𝔽v)" % {𝕊:(200⥊1)⥊1}⎉1 (205⥊1)⥊1
 
-!"𝕨⎉𝕩: Argument frames don't agree (⟨3⟩ ≡ ≢𝕨, ⟨2⟩ ≡ ≢𝕩, common frame of 1 axes)" % "abc" ⊢⎉0 "ab"
-!"𝕨˘𝕩: Argument frames don't agree (⟨3⟩ ≡ ≢𝕨, ⟨2⟩ ≡ ≢𝕩, common frame of 1 axes)" % "abc" ⊢˘ "ab"
+!"𝕨𝔽⎉𝕘𝕩: Argument frames don't agree (⟨3⟩ ≡ ≢𝕨, ⟨2⟩ ≡ ≢𝕩, common frame of 1 axes)" % "abc" ⊢⎉0 "ab"
+!"𝕨𝔽˘𝕩: Argument frames don't agree (⟨3⟩ ≡ ≢𝕨, ⟨2⟩ ≡ ≢𝕩, common frame of 1 axes)" % "abc" ⊢˘ "ab"
 ! ∧´{𝕊: ! (∾≡{𝕨∾𝕩}´) (<•rand.Range∘≠⊸⊑ ⟨"ab",1‿2,⟨⟩,↕0,""⟩) ∾˜ (4•rand.Range≠)⊸⊏ ⟨1, {⇐}, 'a', <'a', <{⇐}, "ab", ↕0, ""⟩}¨↕10000
 
 # error cases that could be affected by special code
@@ -41,7 +44,9 @@
 !"𝕨⊏𝕩: 𝕩 cannot be a unit" % 0⊏˘5⥊<"a"
 !"𝕨⊏𝕩: 𝕩 cannot be a unit" % (3‿0⥊⟨⟩)⊏˘↕3
 !"Expected integer, got 0.1" % 0.1⊑˘3‿5⥊↕15
-!"𝕨⊑𝕩: 𝕩 must be a list when 𝕨 is a number (3‿4 ≡ ≢𝕩)" % 5⊑˘↕2‿3‿4
+!"𝕨⊑𝕩: 𝕩 must be a list when 𝕨 is a number (3‿4 ≡ ≢𝕩)" % 5 ⊑˘ ↕2‿3‿4
+!"𝕨⊑𝕩: 𝕩 must be a list when 𝕨 is a number (3‿4 ≡ ≢𝕩)" % 5 ⊑˘ 2‿3‿4⥊2
+!"𝕨⊑𝕩: 𝕩 must be a list when 𝕨 is a number (3‿4 ≡ ≢𝕩)" % 0 ⊑⎉2 2‿3‿4⥊2
 !">𝕩: Result rank too large (80 ≡ =𝕩, 205 ≡ =⊑𝕩)" % >⎉80 (200⥊1)⥊<(205⥊1)⥊1
 !"𝔽⎉𝕘: Result rank too large (195 ≡ =𝕩, 210 ≡ =𝔽v)" % >⎉5 (200⥊1)⥊<(205⥊1)⥊1
 !"𝕨∾𝕩: Lengths not matchable (⟨6⟩ ≡ ≢𝕨, 1‿1 ≡ ≢𝕩)" % ("abc"∾"def")∾˘○(3/≍)≍"a"
@@ -81,6 +86,15 @@
 %USE tcc ⋄ ⟨⌽, ⍉, ⊏, <, ≍, ⥊, (↕0)⊸⊏, (↕1)⊸⊏, (↕2)⊸⊏⟩ {𝕎 _tcc_ ¯1 𝕩 ⋄ 𝕎 _tcc_ 1 𝕩 ⋄ 𝕎 _tcc_ 2 𝕩}⌜ ⟨<4, ↕5, 4‿5⥊↕20, 4‿5‿6⥊↕120, 2‿3‿4‿5⥊↕120, 10‿0⥊0, 0‿10⥊0, 0‿2‿3⥊0, 2‿3‿4‿0⥊0⟩
 %USE tcc ⋄ ⊏_tcc_ ¯1 4‿2⥊↕8 ⋄ 1⊏_tcc_ ¯1 4‿2⥊↕8 ⋄ ⊏_tcc_ ¯1 ↕4‿2 ⋄ 1⊏_tcc_ ¯1 ↕4‿2
 %USE tcc ⋄ ⊑_tcc_ ¯1 4‿2⥊↕8 ⋄ 1⊑_tcc_ ¯1 4‿2⥊↕8 ⋄ ⊑_tcc_ ¯1 ↕4‿2 ⋄ 1⊑_tcc_ ¯1 ↕4‿2
+
+1⊸⊏˘ 0‿2‿3‿4⥊2 %% 0‿3‿4⥊0 %!HEAPVERIFY
+2⊸⊏˘ 0‿2‿2‿2⥊2 %% ↕0
+⊑⎉¯1 2‿3‿4⥊↕24 %% 2⥊3×4×↕2
+⊑⎉¯2 2‿3‿4⥊↕24 %% 2‿3⥊4×↕6
+⊑⎉¯3 2‿3‿4⥊↕24 %% 2‿3‿4⥊↕24
+0⊸⊑⎉1 2‿3‿4⥊↕24 %% 2‿3⥊4×↕6
+1⊸⊑⎉1 2‿3‿4⥊↕24 %% 1+2‿3⥊4×↕6
+⊑⎉0 10‿10⥊↕100 %% 10‿10⥊↕100
 
 %USE eqvar ⋄ 0‿0‿0‿0 {𝕨⊸⊏˘𝕩}_eqvar ≍˘↕5 %% 5‿4⥊⌊4÷˜↕20
 %USE eqvar ⋄ 0‿¯1‿0‿¯1 {𝕨⊸⊏˘𝕩}_eqvar ≍˘↕5 %% 5‿4⥊⌊4÷˜↕20
@@ -131,7 +145,7 @@
 %USE eqvar ⋄  ≍˘⟜'!' _eqvar 100⥊7↑1 %% ∾⟜'!'○•internal.Keep˘ 0=7|↕100
 %USE eqvar ⋄ ≍˘_eqvar˜ 3‿3⥊↕9 %% 3‿2‿3⥊0‿1‿2‿0‿1‿2‿3‿4‿5‿3‿4‿5‿6‿7‿8‿6‿7‿8
 %USE eqvar ⋄ (2‿3‿4‿5‿1⥊↕11) ≍⎉2 _eqvar 2‿3‿4‿5‿1⥊↕7 %% (2‿3‿4‿5‿1⥊↕11) ≍○•internal.PureKeep⎉2 2‿3‿4‿5‿1⥊↕7
-!"𝕨˘𝕩: Argument frames don't agree (3‿4 ≡ ≢𝕨, 5‿4 ≡ ≢𝕩, common frame of 1 axes)" % (3‿4⥊2) ≍˘ 5‿4⥊2
+!"𝕨𝔽˘𝕩: Argument frames don't agree (3‿4 ≡ ≢𝕨, 5‿4 ≡ ≢𝕩, common frame of 1 axes)" % (3‿4⥊2) ≍˘ 5‿4⥊2
 !"𝕨≍𝕩: 𝕨 and 𝕩 must have equal shapes (⟨4⟩ ≡ ≢𝕨, ⟨5⟩ ≡ ≢𝕩)" % (3‿4⥊2) ≍˘ 3‿5⥊2
 !"𝕨≍𝕩: 𝕨 and 𝕩 must have equal shapes (2‿2‿2 ≡ ≢𝕨, 2‿3‿2 ≡ ≢𝕩)" % (3‿2‿2‿2⥊2) ≍˘ 3‿2‿3‿2⥊2
 !"𝕨≍𝕩: 𝕨 and 𝕩 must have equal shapes (4‿1 ≡ ≢𝕨, ⟨4⟩ ≡ ≢𝕩)" % (3‿4‿1⥊0) ≍˘ 3‿4⥊0

@@ -7,7 +7,7 @@ def dat_types = tup{...ind_types, u64}
 
 # Indices and Replicate using plus- or max-scan
 def scan_core{upd, set, scan, rp:*T, wp:W, s:(usz)} = {
-  def getw{j} = if (isptr{W}) cast_i{usz,load{wp,j}} else wp
+  def getw{j} = match (W) { {*_} => cast_i{usz,load{wp,j}}; {_} => wp }
   b:usz = 1<<10
   k:usz = 0; j:usz = 0; ij:=getw{j}
   while (1) {
@@ -82,7 +82,7 @@ def fact_inds = slice{iota{fact_size+1},8}
 def fact_tab = makefact{basic_rep, fact_inds}
 factors:*u8 = fact_tab
 
-def sdtype = [arch_defvw/8]i8 # shuf data type
+def sdtype = [arch_defvw{}/8]i8 # shuf data type
 def get_shufs{step, wv, len} = {
   def i = iota{len*step}
   split{step, (i - i%wv)/wv}
@@ -104,7 +104,7 @@ rcsh4_lkup:*i8 = shiftright{0, scan{+, fold{|, table{==, rcsh4_dom, iota{64}}}}}
 def read_shuf_vecs{l, ellw:(u64), shp:*V} = { # tuple of byte selectors in 1<<ellw
   def double{x:X if hasarch{'AVX2'}} = {
     s:=shuf{u64, x, 0,2,1,3}; s+=s
-    r:=each{bind{~~,[32]i8},mzip128{s, s + X**1}}
+    r:=each{~~{[32]i8,.}, mzip128{s, s + X**1}}
     r
   }
   def double{x:X if has_bytesel_128} = {
@@ -240,7 +240,7 @@ fn rep_const_shuffle_any(wv:u64, ellw:u64, x:*i8, r:*i8, n:u64) : void = {
 
 def rep_const_broadcast{T, kv, loop, wv:(u64), x:*T, r:*T, n:(u64)} = {
   assert{kv > 0}
-  def V = [arch_defvw/width{T}]T
+  def V = [arch_defvw{}/width{T}]T
   @for (x over n) {
     v := V**x
     @loop (j to kv) store{*V~~r, j, v}
@@ -264,7 +264,7 @@ fn rep_const{T}(wv:u64, x:*void, r:*void, n:u64) : void = {
     }
   }
   def wT = width{T}
-  def vn = arch_defvw/wT
+  def vn = arch_defvw{}/wT
   def V = [vn]T
   def max_shuffle = 2*vn
   if (wv <= max_shuffle) {
@@ -291,8 +291,8 @@ export_tab{'si_constrep', each{rep_const, dat_types}}
 # Constant replicate on boolean
 def any_sel = hasarch{'SSSE3'} or hasarch{'AARCH64'}
 if_inline (hasarch{'AARCH64'}) {
-  def __shl{a:V=[_]T, b:U if not isvec{U}} = a << V**cast_i{T,b}
-  def __shr{a:V=[_]T, b:U if not isvec{U}} = a << V**cast_i{T,-b}
+  def __shl{a:V=[_]T, b:U if not vect{U}} = a << V**cast_i{T,b}
+  def __shr{a:V=[_]T, b:U if not vect{U}} = a << V**cast_i{T,-b}
 }
 
 fn rep_const_bool{}(wv:usz, x:*u64, r:*u64, rlen:usz) : void = {
@@ -431,8 +431,7 @@ def rep_const_bool_div8{wv, x, r, nw if has_simd} = {
   }
   def run8{rep_bytes} = {
     i:usz = 0; while (1) { check_done{}
-      xh := load{*[16]u8~~(*ty_u{vl}~~x + i)}; ++i
-      xv := if (avx2) pair{xh, xh} else xh
+      xv := V**load{*[16]u8 ~~ (*ty_u{vl}~~x + i)}; ++i
       xe := rep_bytes{xv}
       output{(xe & mkV{1 << (iV % 8)}) > V**0}
     }
@@ -507,10 +506,10 @@ def modperm_shuf_step{x:V=[_]T, l, m if l%8==0} = {
 # Reverse each pair of elements
 def swap_elts{x:V=[k]_, el_bytes} = {
   if (hasarch{'AARCH64'}) {
-    if (el_bytes == 8) vshl{x, x, k/2}
+    if (el_bytes == 8) vec_merge_shift_right{x, x, k/2}
     else V~~reverse_units{2, re_el{ty_u{8*el_bytes}, x}}
   } else if (any_sel or (hasarch{'SSE2'} and el_bytes >= 2)) {
-    def wd = min{el_bytes, 8}
+    def wd = __min{el_bytes, 8}
     def l = el_bytes/wd
     def i = iota{l}
     shuf{ty_u{wd*8}, x, merge{i+l, i}}
@@ -643,14 +642,14 @@ def rep_const_bool_odd_mask4{
   {mc4, s4} := double{double{tup{sm0, s1}}}
   # Submasks pick one mask out of a combination of 4
   def or_adv{m, s} = { m |= advance{m,s} }
-  @for (min{k/4 - 1, n/4}) or_adv{sm0,s4}
+  @for (__min{k/4 - 1, n/4}) or_adv{sm0,s4}
   submasks := scan{advance, tup{sm0, ...3**s1}}
   mask_tail := advance{sm0, s4} &~ sm0
 
   # Carry: shifting and word-crossing is done on the initial permuted x
   # No need to carry across input words since they align with output words
   # First bit of each word in xo below is wrong, but it doesn't matter!
-  mr := scal{u64~~1<<k - 1}  # Mask out carry bit before output
+  mr := scal{tail{u64, k}}  # Mask out carry bit before output
   def sub_carry{a, c} = match (M) {
     {[l](u64)} => {
       ca := if (hasarch{'SSE4.2'} or hasarch{'AARCH64'}) { def S = [l]i64; S~~c > S**0 }
@@ -664,7 +663,7 @@ def rep_const_bool_odd_mask4{
     x:M = get_modperm_x{}
     def vrot1 = ifvec{{x} => {
       if (w256{M}) shuf{x, 3,0,1,2}
-      else if (any_sel) vshl{x, x, vcount{type{x}}-1}
+      else if (any_sel) vec_merge_shift_right{x, x, vcount{type{x}}-1}
       else shuf{x, 1,0}
     }}
     xo := x<<k | vrot1{x>>(64-k)}
@@ -730,7 +729,7 @@ def rep_const_bool_small_odd{W=[wl](u64), max_wv, wv, get_perm_x, output} = {
         b := selx{xv, ind} & make{W, mask}
         r := (b<<k) - b
         def selx_nz{x, i} = { def nz = i != -1; selx{x, i * nz} & W~~make{[4]i32, -nz} }
-        o := (if (ew==8) selx else selx_nz){xo, flat_table{min, oi, 255-256*(0<iota{se})}}
+        o := (if (ew==8) selx else selx_nz){xo, flat_table{__min, oi, 255-256*(0<iota{se})}}
         output{r|o}
       }
       each{step,

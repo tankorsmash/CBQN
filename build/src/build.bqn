@@ -24,6 +24,7 @@ opts ← ⟨
   ⟨1,"stored-warn",0,"Print stored warnings from cached build steps"⟩
   ⟨1, "notui",    @, "Disable live-updating status display"⟩
   ⟨1, "nogit",    0, "Error if something attempts to use git"⟩
+  ⟨1,"keep-going",0, "Continue building things even after others fail to"⟩
   ⟨1, "quiet",    0, "Don't output final status line (or any, combined with notui)"∾@+10⟩
   
   ⟨0, "CC",    @, "The used C compiler"⟩
@@ -175,7 +176,7 @@ allCaches ← ⟨"cbqn", "singeli", "replxx", "linker"⟩
 
 po ← { # parsed options
   ⟨
-    verbose, J, clean, rebuild, warnStored, tui, loud, output, clangd, versionName,
+    verbose, J, clean, rebuild, keepGoing, warnStored, tui, loud, output, clangd, versionName,
     os, arch, native, has,
     emcc, wasm, replxx, singeli, staticLib,
     usz, ffi, o3, debug, rtverify, heapverify,
@@ -192,6 +193,7 @@ po ← { # parsed options
   J ⇐ {𝕊: v←GetOpt "j" ⋄ v≢@? •ParseFloat v; •ParseFloat⎊4 ¯1↓"4" TrySH ⟨"nproc"⟩}
   tui ⇐ @⊸≡◶¬‿{𝕊: f←@•FFI"i32"‿"isatty"‿">i32" ⋄ F 1} GetOpt "notui"
   warnStored ⇐ GetOpt "stored-warn"
+  keepGoing ⇐ GetOpt "keep-going"
   loud ⇐ ¬GetOpt "quiet"
   nogit ↩ GetOpt "nogit"
   truecc ⇐ GetOpt "target-from-cc"
@@ -201,7 +203,7 @@ po ← { # parsed options
     vs ← ∾','Split⟜Lowercase¨ GetOpt 𝕩
     {
       vs≡⟨"all"⟩? allCaches;
-      𝕩 {∾⟨"Error: Invalid target in ",𝕨," list: ",⊑𝕩⟩}_assert_(0=≠) vs (¬∘∊/⊣) allCaches
+      𝕩 {∾⟨"Error: Invalid target in ",𝕨," list: ",⊑𝕩, " (valid options: ", 2↓∾", "⊸∾¨ allCaches, ")"⟩}_assert_(0=≠) vs (¬∘∊/⊣) allCaches
       vs
     }𝕩
   }
@@ -250,7 +252,7 @@ po ← { # parsed options
   o3 ⇐ (¬custom) DOpt "O3"
   
   allFlags ← GetOpt "CCFLAGS"
-  minCCFlags ← allFlags ∾ GetOpt "f"
+  minCCFlags ← ∾⟨allFlags, GetOpt "f", native/⟨"-march=native"⟩⟩
   ubsanFlags ← ubsan / ⟨"-fsanitize=undefined", "-fno-sanitize=float-cast-overflow", "-fno-sanitize=vla-bound"⟩
   
   CDefines ← {𝕊: cDefines ↩ (@+10) Split SH ⟨cc⟩ ∾ minCCFlags ∾ ⟨"-dM", "-E", "-"⟩}
@@ -286,7 +288,7 @@ po ← { # parsed options
     ¬singeli? @;
     UpdateSubmodule singeliDir
     SingeliUtil ← {𝕨 •Import AtRoot singeliDir •file.At 𝕩}
-    SingeliArchInfo ↩ {⟨{native? ⟨⟩; singeliArch}, 𝕩⟩ SingeliUtil "arch.bqn"}
+    SingeliArchInfo ↩ {⟨{native∧¬truecc? ⟨⟩; singeliArch}, 𝕩⟩ SingeliUtil "arch.bqn"}
     singeliArch ↩ {
       truecc ∧ @≡GetOpt"arch"?
         archutil ← SingeliUtil "archutil.bqn"
@@ -402,7 +404,7 @@ po ← { # parsed options
     args∾↩ (   @≢versionName) / ⟨"-DHAS_VERSION"⟩
     args∾↩ (          usz≡64) / ⟨"-DUSZ_64"⟩
     args∾↩ (⊑"slow-pdep"<⊸∊ has) / ⟨"-DSLOW_PDEP"⟩
-    args∾↩ {native? ⟨"-march=native"⟩; singeliCFlags}
+    args∾↩ (         ¬native) / singeliCFlags
     args ↩ args (¬∘∊/⊣) GetOpt "rm_f"
     {"CBQN C compiler: "∾•Repr 𝕩} _verboseLog args
     args
@@ -622,8 +624,8 @@ Run ← { 𝕊:
   
   tmap ← ⟨⟩ # threads in the order they're displayed on-screen (dynamically calculated so that if there's only ever only one job in parallel, there are no pointless empty lines)
   doneCount ← 0
-  stopping ← 0
-  Fail ← {stopping↩1 ⋄ Log 𝕩}
+  failed ← 0
+  Fail ← {failed↩1 ⋄ Log 𝕩}
   nextRedraw ← ¯∞
   DoneLine ← {𝕊: ∾⟨•Repr doneCount, "/", •Repr ≠req⟩}
   { 𝕊:
@@ -634,7 +636,7 @@ Run ← { 𝕊:
       t.Request "dry"⊸⋈⍟po.dry v.CMD@
       work∾↩ {t⇐t, i⇐i, v⇐v, t0⇐•MonoTime@}
       
-    }•_while_{𝕊: ∧´0<≠¨ left‿free}⍟¬ stopping
+    }•_while_{𝕊: ∧´0<≠¨ left‿free}⍟⊢ po.keepGoing ∨ ¬failed
     
     t1 ← •MonoTime@
     tmap ↩ ⍷tmap∾Ts work
@@ -659,11 +661,11 @@ Run ← { 𝕊:
       Fail "Error: During '"∾𝕩.v.disp∾"'"
     }¨ done
     free∾↩ Ts done
-  }•_while_{𝕊: (0<≠work) ∨ (¬stopping)∧0<≠left}@
+  }•_while_{𝕊: (0<≠work) ∨ (¬failed)∧0<≠left}@
   
-  Log⍟po.loud ∾⟨DoneLine@, " in ", FmtTime t0g-˜•MonoTime@, "s", stopping/"; failed to build", anyStoredWarnings/"; cached build steps had warnings - view with stored-warn=1"⟩
+  Log⍟po.loud ∾⟨DoneLine@, " in ", FmtTime t0g-˜•MonoTime@, "s", failed/"; failed to build", anyStoredWarnings/"; cached build steps had warnings - view with stored-warn=1"⟩
   
-  ¬stopping
+  ¬failed
 }
 
 
@@ -778,7 +780,7 @@ cachedBin‿linkerCache ← {
       po.singeliFlags
       ⟨"-l", "gen="∾AtRoot singeliCache.folder, "-c", "usz=u"∾•Repr po.usz⟩
       (⊑"slow-pdep"<⊸∊ po.has) / ⟨"-c", "SLOW_PDEP=1"⟩
-      {po.native? ⟨⟩; "-a" ⋈ 1↓∾ ','⊸∾¨ po.singeliArch}
+      {po.native∧¬po.truecc? ⟨⟩; "-a" ⋈ 1↓∾ ','⊸∾¨ po.singeliArch}
     ⟩
     clangd.SingeliInit po
     {𝕊: "Singeli args: "∾•Repr singeliArgs} _verboseLog @

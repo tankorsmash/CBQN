@@ -1,8 +1,5 @@
 include './base'
-if_inline (hasarch{'X86_64'}) {
-  if_inline (hasarch{'PCLMUL'}) include './clmul'
-  if_inline (hasarch{'BMI2'}) include './bmi'
-}
+if_inline (hasarch{'PCLMUL'}) include './clmul'
 include './mask'
 
 def popc_rand{x:T if isint{T} and width{T}==64} = emit{u8, 'rand_popc64', x} # under valgrind, return a random result in the range of possible ones
@@ -26,7 +23,7 @@ itab:*u64 = maketab{8,8} # 256 elts, 2KB; shared by many methods
 
 # Recover popcount, for when POPCNT isn't there
 def has_popc = hasarch{'POPCNT'}
-def tab_popc{i:I, w} = (i>>(width{I}-w) + 1) & (1<<w - 1)
+def tab_popc{i:I, w} = tail{w, i>>(width{I}-w) + 1}
 def popc_alt{v, i, w} = if (has_popc) popc{v} else tab_popc{i, w}
 
 # slash{c, T} defines:
@@ -39,7 +36,7 @@ def arg{c,T} = if (c) *T else if (T==i32) T else tup{} # type of x
 # Modifies the input variable r
 # Assumes iter{} will increment r, by at most write_len
 def for_special_buffered{r:*T, write_len}{vars,begin,sum,iter} = {
-  assert{isreg{r}}; assert{begin==0}
+  assert{kreg{r}}; assert{begin==0}
   def tw = width{T}
   def ov = write_len-1
   def bufn = 2*(ov+1)
@@ -62,7 +59,7 @@ def for_special_buffered{r:*T, write_len}{vars,begin,sum,iter} = {
   } else {
     if (has_simd) {
       def bufw = bufn * tw
-      def vc = tern{hasarch{'X86_64'} and bufw==128, 128, arch_defvw} / tw;
+      def vc = tern{hasarch{'X86_64'} and bufw==128, 128, arch_defvw{}} / tw;
       def R = [vc]T
       @unroll ((ov/vc)>>0) if (end-buf>vc) { store{r0, load{R, buf}}; r0+=vc; buf+=vc }
       assert{bufw % width{R} == 0} # to make sure the below doesn't read out-of-bounds on the stack
@@ -90,7 +87,7 @@ def getter{c, V=[k]T, x} = {
     {} => { v:=load{*V~~x, i}; ++i; v }
   } else {
     i := iota{V}
-    if (isreg{x}) i += V**cast_i{T,x}
+    if (kreg{x}) i += V**cast_i{T,x}
     ii := V**k
     {} => { v:=i; i+=ii; v }
   }
@@ -162,15 +159,16 @@ def shufb128{} = hasarch{'SSSE3'} | hasarch{'AARCH64'}
 def thresh{c==1, T==i8  if shufb128{}} = 64
 def thresh{c==1, T==i16 if shufb128{}} = 32
 fn slash{c==1, T if T<=i16 and shufb128{}}(wp:*u64, x:arg{c,T}, r:*T, l:u64, sum:u64) : void = {
-  def V = [16]i8
+  def V8 = [16]i8
+  def VT = re_el{T,V8}
   @for_special_buffered{r,8} (w in *u8~~wp over i to sum) {
     ind := load{itab, w}
     pc := popc_alt{w, ind, 8}
-    s := V~~make{[2]u64, ind,0}
-    if (T==i16) { s+=s; s = V~~mzip{s, s+V**1, 0} }
-    res := sel{V, load{*V~~(x+8*i)}, s}
-    if (T==i8) storeu{*u64~~r, extract{[2]u64~~res, 0}}
-    else store{*V~~r, 0, res}
+    s := V8~~make{[2]u64, ind,0}
+    if (T==i16) { s+=s; s = V8~~mzip{s, s+V8**1, 0} }
+    src := load{VT, x+8*i, 8}
+    dst := sel{V8, src, s}
+    store{r, dst, 8}
     r+= pc
   }
 }
@@ -245,17 +243,13 @@ fn slash{c, T if hasarch{if (width{T}>=32) 'AVX512F' else 'AVX512VBMI2'}}(w:*u64
   def X = getter{c, V, x}
   def I = ty_u{vl}
   @for (w in *(ty_u{vl})~~w over cdiv{l,vl}) {
-    def emitT{O, name, ...a} = emit{O, merge{'_mm512_',name,'_epi',f{wt}}, ...a}
     m := [vl]u1~~w
     c := popc{w}
     x := X{}
     # The compress-store instruction performs very poorly on Zen4,
     # and is also a lot worse than the following on Tiger Lake
-    # emitT{void, 'mask_compressstoreu', r, m, x}
-    cs := cast_i{I,promote{i64,1}<<(c%64) - 1}
-    if (vl==64) cs -= cast_i{I,c}>>6
-    v := emitT{V, 'mask_compress', x, m, x}
-    store_masked_hom{r, [vl]u1~~cs, v}
+    v := compress{x, m, 0}
+    store_masked_hom{r, lowelt_mask{[vl]u1, c}, v}
     r += c
   }
 }
@@ -268,14 +262,14 @@ export{'si_2slash16', slash{1, i16}}; export{'si_thresh_2slash16', u64~~thresh{1
 export{'si_2slash32', slash{1, i32}}; export{'si_thresh_2slash32', u64~~thresh{1, i32}}
 export{'si_2slash64', slash{1, i64}}; export{'si_thresh_2slash64', u64~~thresh{1, i64}}
 
-def scalwidth{T} = if (isvec{T}) elwidth{T} else width{T}
+def scalwidth{T} = if (vect{T}) elwidth{T} else width{T}
 
 # pext, or boolean compress
 def pext_width{}  = if (hasarch{'AVX2'}) 4 else 1
 def thresh_bool{} = if (hasarch{'AVX2'}) 128 else 16
 def pext_popc{x:T, m:T} = {
   def w = scalwidth{T}
-  def scal{v} = if (isvec{T}) T**v else v
+  def scal{v} = if (vect{T}) T**v else v
   def lowbits{w,k} = base{1<<k, cdiv{w,k}**1}
   # At each step, x and z are split into groups of length k
   # - z tells how many bits in the group are NOT used
@@ -290,9 +284,9 @@ def pext_popc{x:T, m:T} = {
       z0 := z & low
       zm := z>>1 & low
       tup{ x - (x>>1 & z0), zm + z0 }
-    } else if (hasarch{'AVX2'} and isvec{T} and k >= 32) {
+    } else if (hasarch{'AVX2'} and vect{T} and k >= 32) {
       # We have variable shifts at these sizes
-      lh := scal{low_s*(1<<h - 1)}
+      lh := scal{low_s*tail{h}}
       zl := z & lh
       def S = re_el{ty_u{k}, T}
       tup{T~~(S~~(x&~lh) >> S~~zl) | (x&lh), T~~(S~~z >> h) + zl}
@@ -306,7 +300,7 @@ def pext_popc{x:T, m:T} = {
       # Shift high x group down by low z, then add halves of z
       odd:T = scal{low_s*(1<<k - 1<<h)} # Top half
       ze := z&~odd
-      z1 := ze + scal{low_s*(1<<(k-1) - 1)}  # z-1, as signed k-bit
+      z1 := ze + scal{low_s*tail{k-1}}  # z-1, as signed k-bit
       move := odd &~ (z1<<1)         # Only groups where z>0 move
       tup{
         (x&~move) | shift{1, z1, x&move}>>1,
@@ -317,19 +311,19 @@ def pext_popc{x:T, m:T} = {
   # Compose k/g groups with k/g-1 regular shifts
   def multi_shift{x, z, g, k, sc} = {
     o := z * sc{lowbits{k,g}}  # Offsets by prefix sum
-    def s = 1<<g - 1
+    def s = tail{g}
     def s0 = sc{s}
     def oo{sh} = if (sh==g) z else o>>(sh-g)      # Offset for group
     def gr{sh} = (x & sc{s<<sh}) >> (oo{sh} & s0) # Shifted group
     pe := fold{|, x&s0, each{gr, g*slice{iota{k/g},1}}}
     tup{pe, o>>(k-g)}
   }
-  def build{k==32 if hasarch{'AVX2'} and isvec{T}} = {
+  def build{k==32 if hasarch{'AVX2'} and vect{T}} = {
     def S = re_el{ty_u{k}, T}
     def c{T,vs} = each{{v}=>T~~v, vs}
     c{T, multi_shift{...c{S, build{8}}, 8, k, {s}=>S**s}}
   }
-  def build{k if not isvec{T} and k > 8} = {
+  def build{k if not vect{T} and k > 8} = {
     multi_shift{...build{8}, 8, k, {s}=>s}
   }
   # Final result
@@ -344,7 +338,7 @@ def pext_popc{x0:V, m0:V if hasarch{'PCLMUL'} and V==[2]u64} = {
   m := m0
   x := x0 & m
   d := ~m << 1           # One bit of the position difference at x
-  c := V**(1<<64-1)
+  c := hom_ones{V}
   @unroll (i to lb{scalwidth{V}}) {
     def sh = 1 << i
     def shift_at{v, s} = { v = (v&~s) | (v&s)>>sh }
@@ -373,7 +367,7 @@ fn compress_bool(w:*u64, x:*u64, r:*u64, n:u64) : void = {
     }
     ro = ro2%64
   }
-  def extract{t, i if istup{t}} = select{t,i}
+  def extract{t, i if ktup{t}} = select{t,i}
   def v = pext_width{}
   if (v > 1) {
     def V = [v]u64
@@ -403,6 +397,6 @@ export{'si_thresh_compress_bool', u64~~thresh_bool{}}
 # Mask i is the smallest possible mask containing 1 every i bits:
 # there would be a 1 just past the top bit.
 # The number of trailing zeros is 64%i , and the popcount is 64/i .
-def get_spaced_masks{i} = (1<<64 - 1<<(64%i)) / (1<<i - 1)
+def get_spaced_masks{i} = (1<<64 - 1<<(64%i)) / tail{i}
 spaced_masks:*u64 = get_spaced_masks{1 + iota{64}}
 export{'si_spaced_masks', spaced_masks}

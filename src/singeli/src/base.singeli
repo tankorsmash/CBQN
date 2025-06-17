@@ -13,30 +13,27 @@ oper ~~ reinterpret infix right 55
 oper ** broadcast infix right 55
 def extend_each{G, ...args}{...fs} = each{{f, ...args} => (if (length{args}>0) G{...args} else G){f}, fs, ...args}
 
-def isreg   = kreg
-def isconst = kcon
-def istype  = ktyp
-def istup   = ktup
-
 def isunsigned{T} = isint{T} and not issigned{T}
 
-def isvec {T} = istype{T} and same{typekind{T}, 'vector'} # TODO rename these to better reflect that they apply to types
-def isprim{T} = istype{T} and same{typekind{T}, 'primitive'}
-def isptr {T} = istype{T} and same{typekind{T}, 'pointer'}
-def any_num = match { {x:T}=>isprim{T}; {x} => knum{x} }
+def vect {T} = ktyp{T} and same{typekind{T}, 'vector'}
+def primt{T} = ktyp{T} and same{typekind{T}, 'primitive'}
+def any_num = match { {x:T}=>primt{T}; {x} => knum{x} }
 def any_int = match { {x:T}=>isint{T};  {x} => knum{x} and (x>>0) == x }
+def int_idx{_, _} = 0
+def int_idx{k if knum{k}, l} = (k>>0)==k and k>=0 and k<l
+def is_pow2{i if any_int{i}} = (i & (i-1)) == 0
 def elwidth{T} = width{eltype{T}}
 
 def reinterpret{T, x:T} = x
 def export_tab{name, fs} = { v:*one_type{fs} = fs; export{name, v} }
 
 oper &~ andnot infix none 35
-def andnot{a, b:T if any_int{a} and isprim{T}} = a & ~b
-def andnot{a:T, b if isprim{T} and knum{b}} = a & ~T~~b
+def andnot{a, b:T if any_int{a} and primt{T}} = a & ~b
+def andnot{a:T, b if primt{T} and knum{b}} = a & ~T~~b
 
 oper &- ({v:T,m:(u1)} => v & -promote{T,m}) infix left 35
 
-oper // ({a,b}=>floor{a/b}) infix left 40
+oper // ({a,b}=>__floor{a/b}) infix left 40
 
 def ptr_add{E, ptr:P, am} = { ptr = P~~(am + *E~~ptr) }
 
@@ -50,13 +47,13 @@ def tree_fold{F, x} = {
 def tree_fold{F, {x}} = x
 
 def eachx{F, ...args} = {
-  def l = tree_fold{max, each{{x} => if(istup{x}) length{x} else 0, args}}
-  each{F, ...each{{x} => if (istup{x}) x else l**x, args}}
+  def l = tree_fold{__max, each{{x} => if(ktup{x}) length{x} else 0, args}}
+  each{F, ...each{{x} => if (ktup{x}) x else l**x, args}}
 }
 
 
-def load {...args if match (...args) { {ptr:*E, idx      if not isvec{E}}=>0; {..._}=>1 } } = assert{0, 'bad load', ...args}
-def store{...args if match (...args) { {ptr:*E, idx, val if not isvec{E}}=>0; {..._}=>1 } } = assert{0, 'bad store', ...args}
+def load {...args if match (...args) { {ptr:*E, idx      if not vect{E}}=>0; {..._}=>1 } } = assert{0, 'bad load', ...args}
+def store{...args if match (...args) { {ptr:*E, idx, val if not vect{E}}=>0; {..._}=>1 } } = assert{0, 'bad store', ...args}
 def load{p:*_} = load{p, 0}
 # def store{p:*_, v} = store{p, 0, v}
 def loadu {p:*T      if isunsigned{T}} = emit{T,    merge{'loadu_u', fmtnat{width{T}}}, p}
@@ -96,30 +93,32 @@ def all_same{{}} = 1
 def try_same_type{_, default} = default
 def try_same_type{{h:T, ...t} if all{hastype{.,T}, t}, _} = T
 
-def broadcast{T, v if isprim{T}} = v
 def broadcast{n, v if knum{n}} = each{{_}=>v, range{n}}
 
 # type stats
 def minvalue{T if isunsigned{T}} = 0
-def maxvalue{T if isunsigned{T}} = (1<<width{T})-1
+def maxvalue{T if isunsigned{T}} = tail{width{T}}
 def minvalue{T if issigned{T}} = - (1<<(width{T}-1))
-def maxvalue{T if issigned{T}} = (1<<(width{T}-1))-1
+def maxvalue{T if issigned{T}} = tail{width{T}-1}
 
-# vector width/type checks
-def w64 {T} = isvec{T} and width{T}==64;  def w64 {T,w} = w64{T}  and elwidth{T}==w
-def w128{T} = isvec{T} and width{T}==128; def w128{T,w} = w128{T} and elwidth{T}==w
-def w256{T} = isvec{T} and width{T}==256; def w256{T,w} = w256{T} and elwidth{T}==w
-
-# width+type checks
-def genchk{B, F} = match {
-  {V=[_]T   } => B{V} and F{T}
-  {V=[_]T, w} => B{V} and F{T} and width{T}==w
+# vector type checks (all disallow u1 element)
+def genchk{W, F} = match {
+  {V=[_]T   } => W{V} and F{T}
+  {V=[_]T, w} => W{V} and F{T} and width{T}==w
   {..._} => 0
 }
-def genchks{B} = each{genchk{B,.}, tup{isint, issigned, isunsigned, isfloat}}
-def { w64i, w64s, w64u, w64f} = genchks{w64}
-def {w128i,w128s,w128u,w128f} = genchks{w128}
-def {w256i,w256s,w256u,w256f} = genchks{w256}
+def genchks{W} = each{genchk{W,.}, tup{
+  {E} =>                   E!=u1, # vece / no postfix
+  {E} => isint{E}      and E!=u1, # veci
+  issigned,                       # vecs
+  {E} => isunsigned{E} and E!=u1, # vecu
+  isfloat,                        # vecf
+}}
+def { w64,  w64i, w64s, w64u, w64f} = genchks{{V} => width{V} == 64}
+def {w128, w128i,w128s,w128u,w128f} = genchks{{V} => width{V} == 128}
+def {w256, w256i,w256s,w256u,w256f} = genchks{{V} => width{V} == 256}
+def {w512, w512i,w512s,w512u,w512f} = genchks{{V} => width{V} == 512}
+def {vece, veci, vecs, vecu, vecf}  = genchks{{_} => 1}
 
 def trunc{T, x:U if isint{T} and isint{U} and width{T}<=width{U}} = emit{T, '', x}
 def trunc{T, x if knum{x}} = cast{T, x}
@@ -138,7 +137,7 @@ def re_el{E, x:V} = re_el{E,V} ~~ x
 
 local def change_qual{q} = {
   def f{w if knum{w}} = primtype{q, w}
-  def f{T if isprim{T}} = primtype{q, width{T}}
+  def f{T if primt{T}} = primtype{q, width{T}}
   def f{V=[_]T} = re_el{f{T}, V}
   def f{x:T} = f{T}~~x
 }
@@ -146,9 +145,9 @@ def ty_u = change_qual{'u'}
 def ty_s = change_qual{'i'}
 def ty_f = change_qual{'f'}
 
-def w_n{T, w if isprim{T}} = primtype{quality{T}, w}
-def w_d{T if isprim{T}} = to_w{T, width{T}*2} # double/halve primitive type width
-def w_h{T if isprim{T}} = to_w{T, width{T}/2}
+def w_n{T, w if primt{T}} = primtype{quality{T}, w}
+def w_d{T if primt{T}} = to_w{T, width{T}*2} # double/halve primitive type width
+def w_h{T if primt{T}} = to_w{T, width{T}/2}
 
 def n_d{[k]T} = [k*2]T # double/halve vector count
 def n_h{[k]T} = [k/2]T
@@ -162,25 +161,24 @@ def el_s{V=[_]T} = re_el{w_h{T}, V}
 
 
 # vector definitions
-def arch_defvw = if (hasarch{'AVX2'}) 256 else 128
+def arch_defvw{} = if (hasarch{'AVX2'}) 256 else 128
 def has_simd = hasarch{'X86_64'} or hasarch{'AARCH64'}
 def has_sel = hasarch{'AVX2'} or hasarch{'AARCH64'}
 def fast_BMI2{} = hasarch{'BMI2'} and not SLOW_PDEP
 def assert_hom{{...vs}} = each{assert_hom, vs}
 def assert_hom{x:[_]E if quality{E}=='u'} = x
-
-# test if vector has a specific width & element type
-def lvec = match { {[n]T, n, (width{T})} => 1; {T, n, w} => 0 }
+def sel{L=[_]_, v:[_]_, i:[_]_} = vec_shuffle{L, v, i}
 
 # base cases
 def {
-  absu,and_bit_none,andnz,load_bits,blend,blend_units,clmul,cvt,extract,fold_addw,half,
+  absu,and_bit_none,andn_bit_none,andnz,load_bits,blend,blend_units,clmul,cvt,extract,half,
   all_bit,any_bit,blend_bit,
   all_hom,any_hom,blend_hom,hom_to_int,store_masked_hom,store_blended_hom,
   all_top,any_top,blend_top,top_to_int,store_masked_top,store_blended_top,
   load_expand_bits,make,mask_to_hom,mulw_split,mulh,narrow,narrow_trunc,narrow_pair,
-  pair,pdep,pext,rbit,sel,shuf_ind,reverse_units,broadcast_sel,absdiff_sum,mul_sum,
-  unord,unzip,vfold,vec_select,vec_shuffle,widen,widen_upper,multishift,
+  pair,pdep,pext,bzhi,rbit,reverse_units,broadcast_sel,absdiff_sum,mul_sum,mul_sum_sat,
+  unord,unzip,vfold,vec_select,vec_shuffle,widen,widen_upper,multishift,lowelt_mask,
+  masked_mov,compress,
   addp,addpw,addpwa,
 }
 
@@ -212,7 +210,7 @@ def ctz_ext{{n,v}} = ctz{v}/n # ctz for a result of homMaskX
 def hom_to_int{...vs if length{vs}>1} = {
   def n = length{vs}
   def [k]_ = one_type{vs}
-  def RT = ty_u{max{8,k*n}}
+  def RT = ty_u{__max{8,k*n}}
   def sl{...a} = promote{RT, hom_to_int{...slice{vs,...a}}}
   def h = n/2
   def lo = sl{0,h}
@@ -278,7 +276,8 @@ local def extend kpair{op} = {
 }
 extend (extend_each{kpair}){pack, zip, zip128, mzip, mzip128, unzip, unzip128}
 
-def packQ{{a, b}} = packQ{a, b}
+def packs{{a, b}} = packs{a, b}
+def packs128{{a, b}} = packs128{a, b}
 def pair{{a, b}} = pair{a, b}
 
 def widen{T, x:T} = x
@@ -286,29 +285,29 @@ def narrow{T, x:[_]T} = x
 def undef_promote{T, x:T} = x
 def zero_promote{T, x:T} = x
 def cvt{T, x:[_]T} = x
+def extract{V=[k]E, x:V, 0} = x
+def store_narrow_relaxed{p:*DE, x:[k]E} = store{p, narrow{DE, x}, k}
+def fold_addw{E, x:V=[_]E} = vfold{+, x}
+def fold_addw{x:[k]E if k <= (1<<width{E})} = fold_addw{w_d{E}, x}
 
-def broadcast{V=[_]T, v} = vec_broadcast{V, if (knum{v}) v else promote{T,v}}
+def broadcast{T, v if primt{T}} = v
+def broadcast{V=[_]T, v if any_num{v}} = vec_broadcast{V, if (knum{v}) v else promote{T,v}}
+def broadcast{V=[k]E, v:V} = v
 def make{V=[_]_, ...xs} = vec_make{V, ...xs}
-def iota{V=[k]_} = make{V, ...iota{k}}
-def absu{a:[_]_} = ty_u{abs{a}}
+def iota{V=[k]_} = make{V, ...range{k}}
+def absu{a:[_]_} = ty_u{__abs{a}}
+def hom_ones{[k]E} = [k]E ** hom_ones{E}
+def hom_ones{E if issigned{E}} = E ~~ -1
+def hom_ones{E if isunsigned{E}} = E ~~ maxvalue{E}
 def shuf = vec_shuffle
-def vshl = vec_merge_shift_right
-
-def floor = __floor
-def ceil = __ceil
-def abs = __abs
-def min = __min
-def max = __max
-def adds = __adds
-def subs = __subs
 
 
 
 # more arith
-def min{a, b if any_num{a} and any_num{b}} = tern{a<b, a, b}
-def max{a, b if any_num{a} and any_num{b}} = tern{a>b, a, b}
+def __min{a, b if any_num{a} and any_num{b}} = tern{a<b, a, b}
+def __max{a, b if any_num{a} and any_num{b}} = tern{a>b, a, b}
 def cdiv{a,b} = (a+b-1)/b # ceiling divide
-def cdiv{a,b if knum{a} and knum{b}} = ceil{a/b}
+def cdiv{a,b if knum{a} and knum{b}} = __ceil{a/b}
 def popc{x:T if isint{T} and width{T}==64} = emit{ux, '__builtin_popcountll', x}
 def popc{x:T if isint{T} and width{T}<=32} = emit{ux, '__builtin_popcount', x}
 def ctz{x:T if isint{T} and width{T}==64} = emit{ux, '__builtin_ctzll', x}
@@ -339,6 +338,8 @@ def tail{n} = (1<<n) - 1      # mask of the n least significant bits
 def zlow{n,x} = (x >> n) << n # zero out n least significant bits
 def tail{n,x} = x & tail{n}   # get the n least significant bits
 def bit {k,x} = x &  (1<<k)   # get the k-th bit
+def tail{R,n:N if primt{R} and primt{N}} = { assert{n<width{R}}; ((R~~1)<<n) - 1 }
+def tail{R,n if primt{R} and knum{n}} = R~~((1<<n) - 1)
 
 def bit_lut{bits, idx if length{bits}<64 and all{(bits&1) == bits}} = ((base{2,bits} >> idx) & 1) != 0
 
@@ -360,11 +361,6 @@ def in_range_len{x:TU=[_]T, start, count if isunsigned{T}} = { # ∊ [start;star
   def h = 1 << (width{T}-1)
   (TS~~(x-TU**(start-h)))  <  TS**(count-h)
 }
-
-# check if all tuple elements are in a given range
-def in_range{t, min, max} = all{(t>=min) & (t<max)}
-def in_range{t, s, e, min, max} = in_range{slice{t,s,e}, min, max}
-
 
 def load{p,i if kgen{p}} = p{i}
 def store{p,i,x if kgen{p}} = p{i,x}
@@ -413,7 +409,7 @@ def for_blocks{blsz}{vars,begin,end,iter} = {
     iter{tup{i0,i1}, vars}
     if (likely{i1 == end}) goto{el}
     i0 = i1
-    i1 = min{i1+blsz, ux~~end}
+    i1 = __min{i1+blsz, ux~~end}
   }
   setlabel{el}
 }
@@ -429,7 +425,7 @@ def make_branch{Ts, F} = {
 }
 def make_opt_branch{enable, Ts, F} = if (enable) make_branch{Ts, F} else 'not defined'
 
-def undef{T, n if istype{T}} = @collect(n) undef{T}
-def undef{Ts if istup{Ts}} = each{undef, Ts}
+def undef{T, n if ktyp{T}} = @collect(n) undef{T}
+def undef{Ts if ktup{Ts}} = each{undef, Ts}
 def undef{x:T} = undef{T}
-def undef{T if istype{T}} = { reg:=undefined{T} }
+def undef{T if ktyp{T}} = { reg:=undefined{T} }

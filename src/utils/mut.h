@@ -80,12 +80,8 @@ void mut_pfree(Mut* m, usz n);
 // consumes x; sets m[ms] to x
 static void mut_set(Mut* m, usz ms, B x) { m->fns->m_set(m, ms, x); }
 
-
 // clears the object (decrements its refcount) at position ms
 static void mut_rm(Mut* m, usz ms) { if (m->fns->elType == el_B) dec(((B*)m->a)[ms]); }
-
-// gets object at position ms, without increasing refcount
-static B mut_getU(Mut* m, usz ms) { return m->fns->m_getU(m->a, ms); }
 
 // doesn't consume; fills m[ms…ms+l] with x
 static void mut_fill(Mut* m, usz ms, B x, usz l) { m->fns->m_fill(m, ms, x, l); }
@@ -281,3 +277,48 @@ ApdFn apd_tot_init, apd_sh_init, apd_reshape;
 #define APDD(M, A) ({ B av_ = (A); M.apd(&M, av_); dec(av_); }) // consumes A
 #define APD_SH_GET(M, TY) (M.end(&M, TY))
 #define APD_TOT_GET(M) (M.obj)
+
+
+
+typedef struct { B obj; void* data; } DirectArr;
+typedef B (*DirectGet)(void* data, ux i);
+typedef void (*DirectSet)(void* data, ux i, B v);
+typedef void (*DirectSetRange)(void* data, ux rs, B x, ux xs, ux l);
+extern INIT_GLOBAL DirectGet directGetU[el_MAX];
+extern INIT_GLOBAL DirectSet directSet[el_MAX];
+extern INIT_GLOBAL DirectSetRange directSetRange[el_MAX];
+
+// returns an array with eltype==re, with same shape/elements/fill as x, and its data pointer
+DirectArr toEltypeArr(B x, u8 re); // consumes
+
+// returns array with same shape & fill as x, returning x itself if possible (iif so, x.u==obj.u).
+// If reused, the object is untouched besides having its refcount incremented and flags cleared.
+// As such, if an el_B array is reused, all elements effectively have 1 more refcount than they should as x's elements never get freed
+// Otherwise, functionality is the same as if a regular new array was made (i.e. uninitialized elements, may start NOGC)
+DirectArr potentiallyReuse(B x); // doesn't consume
+
+typedef struct {
+  B res;
+  void* rp;
+  void* xp;
+  u8 refState;
+} ConvArr;
+
+// gives TI(res,elType)==re to write in via rp, and a pointer to x's data in eltype==re representation, from either x, or rp
+// TI(x,elType)==el_B needs special handling based on result.refState:
+//   0: elements aren't reference-counted (is so iif TI(x,elType)!=el_B)
+//   1: xp==rp, elements not desired to be copied from x must be decremented
+//   2: result is a fresh array, so elements desired to be copied from x must be incremented
+ConvArr toEltypeArrX(B x, u8 re); // doesn't consume; x must stay alive for xp to remain valid
+
+#define DIRECTARR_COPY(R, RE, X) \
+  u8 R##_elt = RE;                                       \
+  MAYBE_UNUSED DirectArr R = toEltypeArr(X, R##_elt);    \
+  MAYBE_UNUSED DirectGet R##_getU = directGetU[R##_elt]; \
+  MAYBE_UNUSED DirectSet R##_set = directSet[R##_elt];   \
+  MAYBE_UNUSED DirectSetRange R##_setRange = directSetRange[R##_elt];
+
+#define DIRECTARR_RM(R, I) if (R##_elt == el_B) dec(((B*)R.data)[I]);
+#define DIRECTARR_GETU(R, I) R##_getU(R.data, I)
+#define DIRECTARR_REPLACE(R, I, V) R##_set(R.data, I, V)
+#define DIRECTARR_REPLACE_RANGE(R, RS, X, XS, L) R##_setRange(R.data, RS, X, XS, L)

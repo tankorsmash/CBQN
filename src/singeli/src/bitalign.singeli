@@ -7,7 +7,7 @@ def shuf_impl{rw, ...iw, data} = assert{0, 'shuffling failed', ...data{'info'}}
 
 def type0{vs} = type{select{vs,0}}
 # new_shuf{v0:[k]E, v1:[k]E, ..., indices} : [length{indices}]E; -1 for zero, -2 for arbitrary
-def new_shuf{...vs0 if isvec{try_same_type{vs0,'!'}}, {...is}} = { # : [length{is}]E
+def new_shuf{...vs0 if vece{try_same_type{vs0,'!'}}, {...is}} = { # : [length{is}]E
   def vs = each{ty_u, vs0}
   def vn = length{vs}
   def S = type0{vs}
@@ -18,11 +18,11 @@ def new_shuf{...vs0 if isvec{try_same_type{vs0,'!'}}, {...is}} = { # : [length{i
   assert{all{(is >= -2) & (is < vn*vcount{S})}, 'bad shuffle indices', ...vs, is}
   def widen_inds{sc, is} = flat_table{+, sc*is, range{sc}}
   def data0{(E)} = tup{...vs, is}
-  def data0{N if istype{N} and isunsigned{N} and N<E} = {
+  def data0{N if ktyp{N} and isunsigned{N} and N<E} = {
     def sc = width{E} / width{N}
     tup{...each{re_el{N,.}, vs}, widen_inds{sc, is}}
   }
-  def data0{W if istype{W} and isunsigned{W} and W>E} = {
+  def data0{W if ktyp{W} and isunsigned{W} and W>E} = {
     def sc = width{W} / width{E}
     if (ni%sc == 0) {
       def is2 = (select{is, sc*range{ni/sc}} / sc) >> 0
@@ -39,9 +39,9 @@ def new_shuf{...vs0 if isvec{try_same_type{vs0,'!'}}, {...is}} = { # : [length{i
   
   re_el{E, shuf_impl{width{E}*ni, ...vn**width{S}, data}}
 }
-def new_shuf{w if istype{w} or knum{w}, ...vs if isvec{try_same_type{vs,'!'}} and (not isvec{w} or width{w} == width{type0{vs}}), {...is}} = {
+def new_shuf{w if ktyp{w} or knum{w}, ...vs if vece{try_same_type{vs,'!'}} and (not vece{w} or width{w} == width{type0{vs}}), {...is}} = {
   def S = type0{vs}
-  def D = if (isvec{w}) w else re_el{if (isprim{w}) w else ty_u{w}, S}
+  def D = if (vece{w}) w else re_el{if (primt{w}) w else ty_u{w}, S}
   S~~new_shuf{...each{~~{D,.}, vs}, is}
 }
 
@@ -148,7 +148,7 @@ def bitalign{{2,8,s}, 8, G if hasarch{'AVX512VBMI'}} = G{s, {a:V=[k](u8)} => {
   def cyc = make{V, cycle{k, range{8}}}
   def b = sel{V, a, cyc + muls{make{V, replicate{8, range{k/8}}}}}
   def c = multishift{re_el{u64,b}, muls{cyc}}
-  c & V**cast_i{u8, tail{s}}
+  c & V**tail{u8,s}
 }}
 
 
@@ -162,7 +162,7 @@ def bitalign{{2,8,s}, 8, G if hasarch{'AARCH64'}} = G{s, {a:V==[16]u8} => {
   
   def r0 = sel{[16]u8, a, shuf1} << shift1
   def r1 = sel{[16]u8, a, shuf2} << shift2
-  (r0 | r1) & V**cast_i{u8, tail{s}}
+  (r0 | r1) & V**tail{u8,s}
 }}
 
 def bitalign{8, {2,8,d}, G if hasarch{'AARCH64'}} = {
@@ -200,7 +200,7 @@ def bitalign{8, {2,8,d}, G if hasarch{'AARCH64'}} = {
   def run{do_blend}{a:V==[16]u8} = {
     def shuf1 = shuf0 + V**1
     def shift1 = shift0 + [16]i8**cast_i{i8,d}
-    def b = a & V**cast_i{u8, tail{d}}
+    def b = a & V**tail{u8,d}
     def r0 = sel{[16]u8, b, shuf0} << shift0
     def r1 = sel{[16]u8, b, shuf1} << shift1
     def r01 = r0 | r1

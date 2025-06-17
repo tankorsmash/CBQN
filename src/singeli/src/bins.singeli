@@ -27,7 +27,7 @@ def dup_half{vec,half} = shuf{[4]u64, vec, 2*half+tup{0,1,0,1}}
 include './scan_common'
 fn max_scan{T, up}(x:*T, len:u64) : void = {
   if (hasarch{'X86_64'}) {
-    def op = max
+    def op = __max
     def pre = make_scan_idem{T, op, up}
     def vl = (if (hasarch{'AVX2'}) 256 else 128)/width{T}
     def V = [vl]T
@@ -44,7 +44,7 @@ fn max_scan{T, up}(x:*T, len:u64) : void = {
 def getsel{...x} = assert{'shuffling not supported', show{...x}}
 if_inline (hasarch{'AVX2'}) {
   def getsel{h:H=[16]T if width{T}==8} = {
-    shuf{H, pair{h,h}, .}
+    shuf{H, [32]T**h, .}
   }
   def getsel{v:V=[vl==32]T if width{T}==8} = {
     def H = n_h{V}
@@ -250,7 +250,7 @@ def bin_search_vec{prim, T, w:*T, wn, x:*T, xn, rp, maxwn if hasarch{'AVX2'}} = 
   bits := each{{j} => U**(lowbits << j), iota{lstep}}
   # Unroll sizes up to a full lane, handling extra lanes conditionally
   # in the largest one
-  @unroll (klog from 2 to min{maxstep,lstep}+1) {
+  @unroll (klog from 2 to __min{maxstep,lstep}+1) {
     def last = klog==lstep
     def this = if (not last) log==klog else log>=klog
     if (this) @for_vec_overlap{vl} (j to xn) {
@@ -283,12 +283,7 @@ def bin_search_vec{prim, T, w:*T, wn, x:*T, xn, rp, maxwn if hasarch{'AVX2'}} = 
       if (r_out) {
         r -= off
         if (prim=='⊐') r = blend_hom{U**cast_i{u8,wn}, r, b}
-        rn := if (T==i8) r
-              else if (T==i16) half{narrow{u8, r}, 0}
-              else extract{re_el{i64, narrow{u8, r}}, 0}
-        rnp := *type{rn}~~(*i8~~rp+j)
-        if (isvec{type{rn}}) store{rnp, 0, rn}
-        else storeu{rnp, rn}
+        store_narrow_relaxed{*u8~~rp+j, r}
       } else {
         def B = ty_u{vl}; out := cast_i{B, hom_to_int{b}}
         store{*B~~rp, cdiv{j,vl}, out>>((-j)%vl)}
@@ -379,7 +374,7 @@ fn saturate{F,T,...up}(dst:*void, src:*void, n:u64) : void = {
   def a = minvalue{T}
   def b = maxvalue{T}
   @for (d in *T~~dst, xf in *F~~src over n) {
-    x := if (F==f64) (if (select{up,0}) floor else ceil){xf} else xf
+    x := if (F==f64) (if (select{up,0}) __floor else __ceil){xf} else xf
     d = cast_i{T, x}
     if (not x<b) d = b
     if (x<a) d = a

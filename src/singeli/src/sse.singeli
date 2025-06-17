@@ -1,24 +1,79 @@
-### SSSE3 ###
-def sel{L=[_]E, x:T, i:I if hasarch{'SSSE3'} and lvec{L,16,8} and w128{T} and w128i{I, 8}} = vec_select{E, x, i}
+# load & store
+def load{V=[_]E, ptr:*E, vl if w128{V} and vl*width{E}==16} = V ~~ emit{[16]u8, '_mm_loadu_si16', ptr}
+def load{V=[_]E, ptr:*E, vl if w128{V} and vl*width{E}==32} = V ~~ emit{[16]u8, '_mm_loadu_si32', ptr}
+def load{V=[_]E, ptr:*E, vl if w128{V} and vl*width{E}==64} = V ~~ emit{[16]u8, '_mm_loadu_si64', ptr}
+
+def store{ptr:*E, x:V=[_]E, vl if w128{V} and vl*width{E}==16} = emit{void, '_mm_storeu_si16', ptr, v2i{x}}
+def store{ptr:*E, x:V=[_]E, vl if w128{V} and vl*width{E}==32} = emit{void, '_mm_storeu_si32', ptr, v2i{x}}
+def store{ptr:*E, x:V=[_]E, vl if w128{V} and vl*width{E}==64} = emit{void, '_mm_storeu_si64', ptr, v2i{x}}
 
 
-### SSE4.1 ###
-def packs{a:T,b:T if hasarch{'SSE4.1'} and T==[4]u32} = emit{[ 8]u16, '_mm_packus_epi32', a, b}
-def and_bit_none{x:T, y:T if hasarch{'SSE4.1'} and w128i{T}} = emit{u1, '_mm_testz_si128', x, y}
 
+# integer arith
+def __mul{a:T,b:T if [4]i32==T} = {
+  def mu{x, y} = [4]i32 ~~ mul32{[2]u64~~x, [2]u64~~y}
+  def sw{n, ...vs} = each{{c} => vec_shuffle{i32, c, n}, vs}
+  lo:= mu{a, b}
+  hi:= mu{...sw{tup{1,0}, a, b}}
+  [4]i32~~mzip{...sw{tup{0,2,1,3}, lo, hi}, 0}
+}
+
+# float arith
+def rsqrtE{a:([4]f32)} = emit{[4]f32, '_mm_rsqrt_ps', a}
+def   rcpE{a:([4]f32)} = emit{[4]f32, '_mm_rcp_ps', a}
+
+# mask stuff
+def and_bit_none{x:T, y:T if w128i{T}} = all_hom{(x & y) == T**0}
+
+def top_to_int{x:T if w128{T, 8}} = emit{u16, '_mm_movemask_epi8', x}
+def top_to_int{x:T if w128{T, 16}} = top_to_int{packs{[8]i16~~x, [8]i16**0}}
+def top_to_int{x:T if w128{T, 32}} = emit{u8, '_mm_movemask_ps', v2f{x}}
+def top_to_int{x:T if w128{T, 64}} = emit{u8, '_mm_movemask_pd', v2d{x}}
+def hom_to_int{x:T if w128{T}} = top_to_int{x}
+def hom_to_int_ext{a:[_]T if width{T}==16} = tup{2, hom_to_int{re_el{u8,a}}}
+def hom_to_int{a:T, b:T if w128i{T,16}} = hom_to_int{packs{ty_s{a},ty_s{b}}}
+
+def any_hom{x:T if w128i{T}} = hom_to_int{[16]u8 ~~ x} != 0
+def all_hom{x:T if w128i{T}} = hom_to_int{[16]u8 ~~ x} == 0xffff
+
+def any_top{x:T      if w128i{T}} = top_to_int{x} != 0
+def all_top{x:T=[k]_ if w128i{T}} = top_to_int{x} == tail{k}
+def any_top{x:T if w128i{T, 16}} = any_hom{[8]i16~~x  <  [8]i16**0}
+def all_top{x:T if w128i{T, 16}} = all_hom{[8]i16~~x  <  [8]i16**0}
+
+def store_blended_hom{p:*E, m:M=[k]_, v:V=[k]E if w128i{M,width{E}} and w128{V}} = store{p, blend_hom{load{V, p}, v, m}}
+
+def widen{T, x:X if w128i{T} and w128i{X} and w128s{T}==w128s{X} and elwidth{T}>elwidth{X}} = {
+  def s{v} = s{mzip{v,v,0}}
+  def s{v:(T)} = v
+  s{x} >> (elwidth{T} - elwidth{X})
+}
+def widen{T==[2]f64, x:X if w128s{X} and elwidth{X}<32} = widen{T, widen{[4]i32, x}}
+def widen{T==[2]f64, x:X==[4]i32} = emit{T, '_mm_cvtepi32_pd', x}
+def widen{T==[2]f64, x:X==[4]f32} = emit{T, '_mm_cvtps_pd', x}
+
+local def nsh = tup{0,2,3,3}
+local def nar = vec_shuffle{..., nsh}
+def narrow{T==i16, x:([4]i32)} = packs{x,x}
+def narrow{T==i8,  x:([8]i16)} = packs{x,x}
+def narrow{T==u8,  x:([8]u16)} = packs{x,x}
+def narrow{T==u16, x:([4]u32)} = [8]u16~~nar{i32, nar{i16, x}}
+def narrow{T==i8,  x:([4]i32)} = narrow{T, narrow{i16, x}}
+def narrow{T==u8,  x:([4]u32)} = { def f{v} = narrow{u8, [8]u16~~v}; f{f{x}}}
+def narrow{T==u8,  x:([2]u64)} = { def f{v} = narrow{u8, [8]u16~~v}; f{f{f{x}}}}
+def narrow{T==u16, x:([2]u64)} = vec_shuffle16_lo{[8]u16~~nar{i32, x}, nsh}
+def narrow{T==u32, x:([2]u64)} = [4]u32~~nar{i32, x}
+
+def narrow{T, x:X if w128f{X,64} and T<i32} = narrow{T, narrow{i32, x}}
+def narrow{T==i32, x:([2]f64)} = emit{[4]i32, '_mm_cvtpd_epi32', x}
+
+
+
+# SSE4.1
 # conversion
-def widen{T==[8]u16, x:X==[16]u8 if hasarch{'SSE4.1'}} = emit{T, '_mm_cvtepu8_epi16',  x}; def widen{T==[8]i16, x:X if hasarch{'SSE4.1'} and X==[16]i8} = emit{T, '_mm_cvtepi8_epi16',  x}
-def widen{T==[4]u32, x:X==[16]u8 if hasarch{'SSE4.1'}} = emit{T, '_mm_cvtepu8_epi32',  x}; def widen{T==[4]i32, x:X if hasarch{'SSE4.1'} and X==[16]i8} = emit{T, '_mm_cvtepi8_epi32',  x}
-def widen{T==[4]u32, x:X==[8]u16 if hasarch{'SSE4.1'}} = emit{T, '_mm_cvtepu16_epi32', x}; def widen{T==[4]i32, x:X if hasarch{'SSE4.1'} and X==[8]i16} = emit{T, '_mm_cvtepi16_epi32', x}
-def widen{T==[2]u64, x:X==[16]u8 if hasarch{'SSE4.1'}} = emit{T, '_mm_cvtepu8_epi64',  x}; def widen{T==[2]i64, x:X if hasarch{'SSE4.1'} and X==[16]i8} = emit{T, '_mm_cvtepi8_epi64',  x}
-def widen{T==[2]u64, x:X==[8]u16 if hasarch{'SSE4.1'}} = emit{T, '_mm_cvtepu16_epi64', x}; def widen{T==[2]i64, x:X if hasarch{'SSE4.1'} and X==[8]i16} = emit{T, '_mm_cvtepi16_epi64', x}
-def widen{T==[2]u64, x:X==[4]u32 if hasarch{'SSE4.1'}} = emit{T, '_mm_cvtepu32_epi64', x}; def widen{T==[2]i64, x:X if hasarch{'SSE4.1'} and X==[4]i32} = emit{T, '_mm_cvtepi32_epi64', x}
-def widen{T==[2]f64, x:X=[_]E    if hasarch{'SSE4.1'} and w128i{X} and width{E}<32} = widen{T, widen{[4]i32, x}}
-
 def narrow{(i8 ), x:X if hasarch{'SSE4.1'} and w128i{X,32}} = sel{[16]u8, [16]i8~~x, make{[16]i8, 0,4,8,12, 0,0,0,0, 0,0,0,0, 0,0,0,0}}
 def narrow{(i16), x:X if hasarch{'SSE4.1'} and w128i{X,32}} = sel{[16]u8, [8]i16~~x, make{[16]i8, 0,1,4,5, 8,9,12,13, 0,0,0,0, 0,0,0,0}}
 
 # mask stuff
-def and_bit_none{x:T, y:T if hasarch{'SSE4.1'} and w128i{T}} = emit{u1, '_mm_testz_si128', x, y}
 def blend_top{f:T, t:T, m:M if hasarch{'SSE4.1'} and w128i{T} and w128i{M,32}} = T ~~ blend_top{v2f{f}, v2f{t}, m}
 def blend_top{f:T, t:T, m:M if hasarch{'SSE4.1'} and w128i{T} and w128i{M,64}} = T ~~ blend_top{v2d{f}, v2d{t}, m}

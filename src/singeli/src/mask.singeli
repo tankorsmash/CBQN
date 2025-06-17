@@ -1,6 +1,6 @@
 local def bit_mask_init{w} = {
   apply{merge, each{{x} => {
-    merge{(w/8-1)**255, (1<<x)-1, (w/8)**0}
+    merge{(w/8-1)**255, tail{x}, (w/8)**0}
   }, iota{8}}}
 }
 mask256_1:*u8 = bit_mask_init{256}; def mask_of_first_bits{T,n if width{T}==256} = load{*[32]u8  ~~  (mask256_1 + (n>>3)^31 + 64*(n&7))}
@@ -14,8 +14,8 @@ def mask_of_first{T,n if w256{T}} = mask_of_impl{T, n, 256}
 def mask_of_first{T,n if w128{T}} = mask_of_impl{T, n, 128}
 def mask_of_first{T,n if  w64{T}} = mask_of_impl{T, n,  64}
 
-def anyne{x:T, y:T, M if M{0}==0 and isvec{T}} = ~all_hom{x==y}
-def anyne{x:T, y:T, M if M{0}==1 and isvec{T}} =  any_hom{M, x!=y}
+def anyne{x:T, y:T, M if M{0}==0 and vect{T}} = ~all_hom{x==y}
+def anyne{x:T, y:T, M if M{0}==1 and vect{T}} =  any_hom{M, x!=y}
 def anyne{x:T, y:T, M if M{0}==0 and any_int{x}} = x!=y
 def anyne{x:T, y:T, M if M{0}==1 and any_int{x}} = M{x^y} != 0
 def anyne_bit{x:T, y:T, M} = ~M{x^y, 'all bits zeroes'}
@@ -36,10 +36,12 @@ def mask_first{n} = {
   def mask{X, 'to homogeneous bits'} = mask_of_first{X,n}
   def mask{'count'} = n
   def mask{{x}} = tup{mask{x}}
-  def mask{x:X if isvec{X}} = x & (X~~mask_of_first{X,n})
-  def mask{x:X if any_int{x}} = x & ((1<<n) - 1)
+  def mask{x:X if vect{X}} = x & (X~~mask_of_first{X,n})
+  def mask{x:X if any_int{x}} = tail{n, x}
   def mask{0} = 1
 }
+def mask_scale{M if ~M{0}, sc} = M
+def mask_scale{M if  M{0}, sc} = mask_first{M{'count'}*sc}
 
 
 
@@ -145,7 +147,7 @@ def for_mu{bulk, unr, extra}{vars,begin==0,end,iter} = {
       def done = makelabel{}
       cs:u64 = 0
       while (1) {
-        def ce = min{m, cs + flush_max-1}
+        def ce = __min{m, cs + flush_max-1}
         @for (i from cs to ce) ml_exec{tup{i}, iter, vars, bulk, mask_none}
         if (ce == m) goto{done}
         cs = ce
@@ -168,7 +170,7 @@ def for_mu{bulk, unr, extra}{vars,begin==0,end,iter} = {
           def done = makelabel{}
           def unr_end = m-unr + 1
           while (1) {
-            def ce = min{unr_end, i + (flush_max-unr)*unr}
+            def ce = __min{unr_end, i + (flush_max-unr)*unr}
             while (i < ce) unr_iter{}
             if (ce == unr_end) goto{done}
             flush{}

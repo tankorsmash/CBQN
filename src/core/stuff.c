@@ -40,12 +40,10 @@ NORETURN NOINLINE void fatal(char* s) {
   exit(1);
 }
 
-NOINLINE B c1F(B f, B x) { dec(x);
-  if (isMd(f)) thrM("Calling a modifier");
+NOINLINE B c1F(B f, B x) { dec(x); errMd(f);
   return inc(VALIDATE(f));
 }
-NOINLINE B c2F(B f, B w, B x) { dec(w); dec(x);
-  if (isMd(f)) thrM("Calling a modifier");
+NOINLINE B c2F(B f, B w, B x) { dec(w); dec(x); errMd(f);
   return inc(VALIDATE(f));
 }
 NOINLINE void value_freeF(Value* x) { value_free(x); }
@@ -209,12 +207,7 @@ i32 num_fmt(char buf[30], f64 x) {
 }
 
 static B appendRaw(B s, B x) { assert(isArr(x) && RNK(x)==1); // consumes x
-  if (TI(x,elType)==el_c32) AJOIN(x);
-  else {
-    B sq = chr_squeezeChk(x);
-    if (!elChr(TI(sq,elType))) FL_KEEP(sq, ~fl_squoze);
-    AJOIN(sq);
-  }
+  AJOIN(squeeze_chrOut(x));
   return s;
 }
 NOINLINE B do_fmt(B s, char* p, va_list a) {
@@ -236,22 +229,36 @@ NOINLINE B do_fmt(B s, char* p, va_list a) {
         s = appendRaw(s, bqn_repr(inc(b)));
         break;
       }
-      case '2':
-      case 'H': {
+      case 'H': case '0': case '2': {
+        bool a2 = false;
+        bool a0 = false;
+        while (true) {
+          if (c=='H') break;
+          else if (c=='2') a2 = true;
+          else if (c=='0') a0 = true;
+          else fatal("Invalid format string following [H02]");
+          c = *p++;
+        }
         ur r;
         usz* sh;
-        if (c=='2') {
-          if ('H' != *p++) fatal("Invalid format string: expected H after %2");
+        bool atom;
+        if (a2) {
           r = va_arg(a, int);
           sh = va_arg(a, usz*);
+          atom = false;
         } else {
           B o = va_arg(a, B);
-          r = isArr(o)? RNK(o) : 0;
-          sh = isArr(o)? SH(o) : NULL;
+          atom = isAtm(o);
+          r = atom? 0 : RNK(o);
+          sh = atom? NULL : SH(o);
         }
-        if (r==0) AU("⟨⟩");
-        else if (r==1) AFMT("⟨%s⟩", sh[0]);
-        else {
+        if (r==0) {
+          if (a0 && atom) A8("atom");
+          else if (a0 && !atom) A8("unit array");
+          else AU("⟨⟩");
+        } else if (r==1) {
+          AFMT("⟨%s⟩", sh[0]);
+        } else {
           for (i32 i = 0; i < r; i++) {
             if(i) AU("‿");
             AFMT("%s", sh[i]);
@@ -293,6 +300,12 @@ NOINLINE B do_fmt(B s, char* p, va_list a) {
       case 's': {
         usz v = va_arg(a, usz);
         snprintf(buf, 30, sizeof(usz)==4? "%u" : N64u, v);
+        A8(buf);
+        break;
+      }
+      case 'z': {
+        ux v = va_arg(a, ux);
+        snprintf(buf, 30, "%zu", v);
         A8(buf);
         break;
       }
@@ -369,7 +382,7 @@ char* genericDesc(B x) {
   if (isMd1(x)) return "1-modifier";
   if (isMd2(x)) return "2-modifier";
   if (isNsp(x)) return "namespace";
-  return "object of unknown type";
+  fatal("genericDesc was passed an object of unhandled type");
 }
 
 NOINLINE NORETURN void expI_B(B what) {
@@ -424,22 +437,33 @@ char* eltype_repr(u8 u) {
   }
 }
 bool isPureFn(B x) { // doesn't consume
-  if (isCallable(x)) {
-    if (isPrim(x)) return true;
-    B2B dcf = TI(x,decompose);
-    B xd = dcf(inc(x));
-    B* xdp = harr_ptr(xd);
-    i32 t = o2iG(xdp[0]);
-    if (t<2) { decG(xd); return t==0; }
-    usz xdia = IA(xd);
-    for (u64 i = 1; i<xdia; i++) if(!isPureFn(xdp[i])) { decG(xd); return false; }
-    decG(xd); return true;
-  } else if (isArr(x)) {
-    usz ia = IA(x);
-    SGetU(x)
-    for (usz i = 0; i < ia; i++) if (!isPureFn(GetU(x,i))) return false;
-    return true;
-  } else return isNum(x) || isC32(x);
+  NOGC_CHECK("cannot call isPureFn during noAlloc");
+  if (!isCallable(x)) return true;
+  
+  if (isPrim(x)) return true;
+  
+  B xd = TI(x,decompose)(inc(x));
+  B* xdp = harr_ptr(xd);
+  i32 t = o2iG(xdp[0]);
+  
+  if (t < 2) { decG(xd); return t==0; }
+  
+  if (t == 5) { // ⟨5, F, _r_, G⟩
+    if (isPrim(xdp[2]) && RTID(xdp[2])==n_cond) {
+      B sel = xdp[3];
+      if (isArr(sel)) {
+        usz ia = IA(sel);
+        SGetU(sel)
+        for (ux i = 0; i < ia; i++) if (!isPureFn(GetU(sel,i))) goto retf;
+      }
+      if (isPureFn(xdp[1])) goto rett;
+      else goto retf;
+    }
+  }
+  
+  usz xdia = IA(xd);
+  for (ux i = 1; i < xdia; i++) if(!isPureFn(xdp[i])) { retf: decG(xd); return false; }
+  rett: decG(xd); return true;
 }
 
 B bqn_merge(B x, u32 type) {
@@ -483,7 +507,7 @@ NOINLINE void print_allocStats() {
   #if ALLOC_STAT
     printf("total ever allocated: "N64u"\n", talloc);
     printf("allocated heap size:  "N64u"\n", mm_heapAlloc);
-    printf("used heap size:       "N64u"\n", mm_heapUsed());
+    printf("used heap size:       "N64u"\n", tot_heapUsed());
     ctr_a[t_harr]+= ctr_a[t_harrPartial];
     ctr_a[t_harrPartial] = 0;
     printf("ctrA←"); for (i64 i = 0; i < t_COUNT; i++) { if(i)printf("‿"); printf(N64u, ctr_a[i]); } printf("\n");
@@ -513,18 +537,19 @@ NOINLINE void print_allocStats() {
 #endif
 
 // for gdb
+#define DEBUG_FN __attribute__((__visibility__("default")))
 B info_c2(B, B, B);
-Value* g_v(B x) { return v(x); }
-Arr*   g_a(B x) { return a(x); }
-B      g_t (void* x) { return tag(x,OBJ_TAG); }
-B      g_ta(void* x) { return tag(x,ARR_TAG); }
-B      g_tf(void* x) { return tag(x,FUN_TAG); }
 GLOBAL bool ignore_bad_tag;
-void   g_p(B x) { fprintI(stderr,x); fprintf(stderr,"\n"); fflush(stderr); }
-void   g_i(B x) { B r = info_c2(x, m_f64(1), inc(x)); fprintI(stderr,r); dec(r); fprintf(stderr,"\n"); fflush(stderr); }
-void   g_pv(void* x) { ignore_bad_tag=true; fprintI(stderr,tag(x,OBJ_TAG)); fprintf(stderr,"\n"); fflush(stderr); ignore_bad_tag=false; }
-void   g_iv(void* x) { ignore_bad_tag=true; B xo = tag(x, OBJ_TAG); B r = C2(info, m_f64(1), inc(xo)); fprintI(stderr,r); dec(r); fprintf(stderr,"\n"); fflush(stderr); ignore_bad_tag=false; }
-void   g_pst(void) { vm_pstLive(); fflush(stdout); fflush(stderr); }
+DEBUG_FN Value* g_v(B x) { return v(x); }
+DEBUG_FN Arr*   g_a(B x) { return a(x); }
+DEBUG_FN B      g_t (void* x) { return tag(x,OBJ_TAG); }
+DEBUG_FN B      g_ta(void* x) { return tag(x,ARR_TAG); }
+DEBUG_FN B      g_tf(void* x) { return tag(x,FUN_TAG); }
+DEBUG_FN void   g_p(B x) { fprintI(stderr,x); fprintf(stderr,"\n"); fflush(stderr); }
+DEBUG_FN void   g_i(B x) { B r = info_c2(x, m_f64(1), inc(x)); fprintI(stderr,r); dec(r); fprintf(stderr,"\n"); fflush(stderr); }
+DEBUG_FN void   g_pv(void* x) { ignore_bad_tag=true; fprintI(stderr,tag(x,OBJ_TAG)); fprintf(stderr,"\n"); fflush(stderr); ignore_bad_tag=false; }
+DEBUG_FN void   g_iv(void* x) { ignore_bad_tag=true; B xo = tag(x, OBJ_TAG); B r = C2(info, m_f64(1), inc(xo)); fprintI(stderr,r); dec(r); fprintf(stderr,"\n"); fflush(stderr); ignore_bad_tag=false; }
+DEBUG_FN void   g_pst(void) { vm_pstLive(); fflush(stdout); fflush(stderr); }
 
 #if DEBUG
   GLOBAL bool cbqn_noAlloc;
@@ -609,5 +634,52 @@ void   g_pst(void) { vm_pstLive(); fflush(stdout); fflush(stderr); }
     fprintf(stderr, "  𝕩: "); warn_ln(x);
     fprintf(stderr, "  f: "); warn_ln(y);
     fflush(stderr);
+  }
+#endif
+
+#if RANDOMIZE_HEURISTICS
+  #include "../utils/wyhash.h"
+  #ifndef MATCH_ERROR_MESSAGES
+    #define MATCH_ERROR_MESSAGES 1
+  #endif
+  
+  u64 heuristic_seed;
+  bool heuristic_rand(bool heuristic, bool true_req, bool false_req) {
+    assert(heuristic? true_req : false_req);
+    if (!true_req | !false_req) return heuristic;
+    return wyrand(&heuristic_seed) & 1;
+  }
+  
+  
+  
+  SqRes squeeze_numTryImpl(B x);
+  SqRes squeeze_chrTryImpl(B x);
+  
+  static u32 squeeze_processReq(B x, u32 req) {
+    assert(isArr(x));
+    if (MATCH_ERROR_MESSAGES) {
+      req|= req / SQ_MSGREQ(1);
+    }
+    return req & (SQ_NUM|SQ_INT|SQ_CHR|SQ_BEST|SQ_EMPTY);
+  }
+  static SqRes squeeze_ret(B x) {
+    return (SqRes){x, TI(x,elType)};
+  }
+  
+  // TODO randomize level of squeezing
+  SqRes squeeze_numTryRand(B x, u32 req) {
+    req = squeeze_processReq(x, req);
+    u8 xe = TI(x,elType);
+    if (MAY_T((req&SQ_BEST) || ((req&SQ_EMPTY) && IA(x)==0))) return squeeze_numTryImpl(x);
+    if ((req&SQ_NUM) && !elNum(xe)) return squeeze_numTryImpl(x);
+    if ((req&SQ_INT) && !elInt(xe)) return squeeze_numTryImpl(x);
+    return squeeze_ret(x);
+  }
+  SqRes squeeze_chrTryRand(B x, u32 req) {
+    req = squeeze_processReq(x, req);
+    u8 xe = TI(x,elType);
+    if (MAY_T((req&SQ_BEST) || ((req&SQ_EMPTY) && IA(x)==0))) return squeeze_chrTryImpl(x);
+    if ((req&SQ_CHR) && !elChr(xe)) return squeeze_chrTryImpl(x);
+    return squeeze_ret(x);
   }
 #endif

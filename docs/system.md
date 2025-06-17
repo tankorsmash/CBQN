@@ -88,29 +88,31 @@ Argument must not be a namespace, as that is reserved for future changes.
 
 Namespace of various internal functions. May change at any time.
 
-| name                       | description |
-|----------------------------|-------------|
-| `•internal.GC`             | Run a garbage collection cycle |
-| `•internal.Type`           | Name of the internal type for an object |
-| `•internal.ObjFlags`       | Monadically, get the flags of `𝕩`. Dyadically, set the flags of `𝕩` to `𝕨`. |
-| `•internal.ElType`         | Element size type identifier; see `enum ElType` |
-| `•internal.Keep`           | Require the argument to stay alive up to this point in the program. Returns the argument, but without signaling to possible optimizations that the input and output will be equal |
-| `•internal.PureKeep`       | `•internal.Keep` but marked as a pure function |
-| `•internal.Refc`           | Reference count of the argument, if it's heap-allocated |
-| `•internal.IsPure`         | Whether the vm considers the argument pure (i.e. it can execute it safely for computing fills) |
-| `•internal.Info`           | General internal info about the object; a left argument of `1` gives more details |
-| `•internal.HeapDump`       | Create a heap dump file; saves to `•wdpath`-relative path `𝕩` or `CBQNHeapDump` if `𝕩` isn't an array |
-| `•internal.HeapStats`      | If argument is `@`, returns `⟨total heap size ⋄ used heap size⟩`. If argument is a string, prints the equivalent of `)mem the-string` |
-| `•internal.HasFill`        | Returns whether the argument has a fill element (may give `0` even if `1↑0⥊𝕩` doesn't error in some CBQN configurations) |
-| `•internal.Squeeze`        | Try to convert the argument to its most compact representation |
-| `•internal.DeepSqueeze`    | Try to convert the argument and all its subarrays to its most compact representation; won't squeeze namespace fields |
-| `•internal.ListVariations` | List the possible type variations of the argument array |
-| `•internal.Variation`      | Convert `𝕩` to the variation specified in `𝕨` |
-| `•internal.ClearRefs`      | Clear references `•internal.Variation` made for `*Inc` variations |
-| `•internal.Unshare`        | Get a unique, reference count 1 version of the argument; recursively unshares array items, doesn't touch namespaces |
-| `•internal.EEqual`         | exactly equal (NaN equals NaN, 0 equals ¯0) |
-| `•internal.Temp`           | place to test new features or temporarily expose some internal function |
-| `•internal.Properties`     | various build properties |
+| name                          | description |
+|-------------------------------|-------------|
+| `•internal.GC`                | Run a garbage collection cycle |
+| `•internal.Type`              | Name of the internal type for an object |
+| `•internal.ObjFlags`          | Monadically, get the flags of `𝕩`. Dyadically, set the flags of `𝕩` to `𝕨`. |
+| `•internal.ElType`            | Element size type identifier; see `enum ElType` |
+| `•internal.Keep`              | Require the argument to stay alive up to this point in the program. Returns the argument, but without signaling to possible optimizations that the input and output will be equal |
+| `•internal.PureKeep`          | `•internal.Keep` but marked as a pure function |
+| `•internal.Refc`              | Reference count of the argument, if it's heap-allocated |
+| `•internal.IsPure`            | Whether the vm considers the argument pure (i.e. it can execute it safely for computing fills) |
+| `•internal.Info`              | General internal info about the object; a left argument of `1` gives more details |
+| `•internal.HeapDump`          | Create a heap dump file; saves to `•wdpath`-relative path `𝕩` or `CBQNHeapDump` if `𝕩` isn't an array |
+| `•internal.HeapStats`         | If argument is `@`, returns `⟨total heap size ⋄ used heap size⟩`. If argument is a string, prints the equivalent of `)mem the-string` |
+| `•internal.HasFill`           | Returns whether the argument has a fill element (may give `0` even if `1↑0⥊𝕩` doesn't error in some CBQN configurations) |
+| `•internal.Squeeze`           | Try to convert the argument to its most compact representation; result may have fill updated to `0` or `' '`. (input is left unchanged) |
+| `•internal.DeepSqueeze`       | Try to convert the argument and all its subarrays to its most compact representation; won't squeeze namespace fields |
+| `•internal.ListVariations`    | List the possible type variations of the argument array |
+| `•internal.Variation`         | Convert `𝕩` to the variation specified in `𝕨` |
+| `•internal.ClearRefs`         | Clear references `•internal.Variation` made for `*Inc` variations |
+| `•internal.Unshare`           | Get a unique, reference count 1 version of the argument; recursively unshares array items, doesn't touch namespaces |
+| `•internal.EEqual`            | Exactly equal (`𝕨≡𝕩` but NaN equals NaN) |
+| `•internal.Indistinguishable` | Semantically indistinguishable (`•internal.EEqual`, plus checking fills) |
+| `•internal.Temp`              | Place to test new features or temporarily expose some internal function |
+| `•internal.Properties`        | Various build properties |
+| `•internal.Validate`          | Validate that `𝕩` has correct flags set |
 
 # FFI
 

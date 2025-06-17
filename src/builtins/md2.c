@@ -33,7 +33,7 @@ B fillBy_c1(Md2D* d,      B x) { return c1(d->f,   x); }
 B fillBy_c2(Md2D* d, B w, B x) { return c2(d->f, w,x); }
 #endif
 
-#if defined(SEMANTIC_CATCH_BI)? SEMANTIC_CATCH_BI : SEMANTIC_CATCH
+#if defined(SEMANTIC_CATCH_BI)? SEMANTIC_CATCH_BI : (SEMANTIC_CATCH && USE_SETJMP)
 extern GLOBAL B lastErrMsg; // sysfn.c
 typedef struct ReObj {
   struct CustomObj;
@@ -93,7 +93,7 @@ NOINLINE B repeat_replaceR(B g, B* q) {
   usz ia = IA(g);
   M_HARR(r, ia);
   for (usz i = 0; i < ia; i++) HARR_ADD(r, i, repeat_replace(GetU(g,i), q));
-  return any_squeeze(HARR_FC(r, g));
+  return squeeze_any(HARR_FC(r, g));
 }
 #define REPEAT_T(CN, END, ...)                     \
   B g = CN(d->g, __VA_ARGS__ inc(x));              \

@@ -26,6 +26,8 @@ static bool fillEqual(B w, B x) {
   return fillEqualF(w, x);
 }
 
+static bool numFill(B x) { return x.u == m_f64(0).u; }
+static bool chrFill(B x) { return isC32(x); }
 
 static B getFillN(B x) { // doesn't consume, doesn't increment result; can return bi_noFill
   if (isArr(x)) {
@@ -82,7 +84,11 @@ static Arr* m_fillarrp(usz ia) { // needs a NOGC_E after fill & all elements are
   NOGC_S;
   return r;
 }
-static void fillarr_setFill(Arr* x, B fill) { assert(PTY(x)==t_fillarr); ((FillArr*)x)->fill = fill; } // consumes fill
+static void fillarr_setFill(Arr* x, B fill) { // consumes fill
+  assert(PTY(x)==t_fillarr);
+  if (DEBUG) validateFill(fill);
+  ((FillArr*)x)->fill = fill;
+}
 static B* fillarrv_ptr  (Arr* x) { assert(PTY(x)==t_fillarr);   return ((FillArr*)x)->a; }
 static B* fillslicev_ptr(Arr* x) { assert(PTY(x)==t_fillslice); return ((FillSlice*)x)->a; }
 static Arr* m_fillarrpEmpty(B fill) {
@@ -98,6 +104,16 @@ static Arr* m_fillarr0p(usz ia) { // zero-initialized fillarr, with both fill & 
   NOGC_E;
   return r;
 }
+
+static UntaggedArr m_barrp_withFill(ux ia, B fill) { // doesn't consume
+  CHECK_IA(ia, sizeof(B));
+  bool has = !noFill(fill);
+  Arr* r = m_arr(has? fsizeof(FillArr,a,B,ia) : fsizeof(HArr,a,B,ia), has? t_fillarr : t_harr, ia);
+  if (has) fillarr_setFill(r, fill);
+  if (ia) NOGC_S;
+  return (UntaggedArr){r, has? fillarrv_ptr(r) : harrv_ptr(r)};
+}
+
 
 B m_funit(B x); // consumes
 B m_unit(B x); // consumes

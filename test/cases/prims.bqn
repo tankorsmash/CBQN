@@ -1,8 +1,10 @@
 %DEF var V←•internal.Variation ⋄ LV←•internal.ListVariations ⋄ CLR←•internal.ClearRefs
 %DEF tvar %USE var ⋄ _tvar ← {F _𝕣 x: (CLR@) ⊢ {F 𝕩 V x}¨ LV 𝕩; w F _𝕣 x: (CLR@) ⊢ (LV 𝕨) {(𝕨 V w) F 𝕩 V x}⌜ LV 𝕩}
-%DEF eqvar %USE tvar ⋄ _eqvar ← {r ← 𝕨 𝔽 _tvar 𝕩 ⋄ !∘≡⟜(⊑r)¨ r ⋄ ⊑r}
-%DEF evar %USE tvar ⋄ _evar ← {ok←{⇐} ⋄ r←⥊𝕨 ok∘𝔽⎊{𝕊: •CurrentError@} _tvar 𝕩 ⋄ {⊑ok∊r? !"TEST FAIL: variation didn't error"; ("TEST FAIL: varying error messages"⊸⋈ ! 1=≠)⍷r ⋄ !⊑r}}
-%DEF eqerr %USE eqvar ⋄ _eqerr ← {ok←{⇐} ⋄ r←⥊𝕨 ok∘𝔽⎊{𝕊: •CurrentError@}⌜ 𝕩 ⋄ {⊑ok∊r? !"TEST FAIL: case didn't error"; ("TEST FAIL: varying error messages"⊸⋈ ! 1=≠)⍷r ⋄ !⊑r}}
+%DEF eqvar ⟨_eqvar⟩←⊑•args
+%DEF eqvarv ⟨_eqvarv_⟩←⊑•args
+%DEF evar %USE tvar ⋄ _evar ← {ok←{⇐} ⋄ r←⥊𝕨 ok∘𝔽⎊{𝕊: •CurrentError@} _tvar 𝕩 ⋄ {⊑ok∊r? !"TEST FAIL: variation didn't error"; ("TEST FAIL: varying error messages"⊸⋈ ! 1=≠)⍷r ⋄ (⊑r)!0}}
+%DEF eqerr %USE eqvar ⋄ _eqerr ← {ok←{⇐} ⋄ r←⥊𝕨 ok∘𝔽⎊{𝕊: •CurrentError@}⌜ 𝕩 ⋄ {⊑ok∊r? !"TEST FAIL: case didn't error"; ("TEST FAIL: varying error messages"⊸⋈ ! 1=≠)⍷r ⋄ (⊑r)!0}}
+%DEF eqall _eqall0 ← {r←⊑𝕩 ⋄ ("TEST FAIL: eqall failed" ! r⊸𝔽)¨ 𝕩 ⋄ r} ⋄ EqAll ← •internal.Indistinguishable _eqall0
 %DEF k _k ← {𝔽○•internal.Keep}
 
 # batch checks
@@ -23,9 +25,11 @@
 {•Type}=⟨•Type,•BQN"•Type"⟩ %% 1‿1
 {•FChars}=⟨•FChars,•BQN"•FChars"⟩ %% 1‿0
 =⌜˜ ⟨+, ⁼, ⌾, {𝕩}, {𝔽𝕩}, {𝔽𝔾}, •internal.PureKeep, •internal.Keep, •Type, •FChars, •_timed, •_while_, 2⊸+, +-, {⇐}⟩ %% 15‿15⥊1∾15⥊0
-≡⌜˜ ⟨(0÷0)⊸+, (0÷0)⊸+⟩ %% [1‿0, 0‿1]
-=⌜˜ ⟨(0÷0)⊸+, (0÷0)⊸+⟩ %% [1‿0, 0‿1]
-! {𝕩 ≡ ⍷2/𝕩} ⟨(0÷0)⊸+, (0÷0)⊸+⟩
+≡⌜˜ ⟨(0÷0)⊸+, (0÷0)⊸+⟩ %% [1‿1, 1‿1]
+=⌜˜ ⟨(0÷0)⊸+, (0÷0)⊸+⟩ %% [1‿1, 1‿1]
+≠⍷ ⟨(0÷0)⊸+, 2, 2, 3, (0÷0)⊸+⟩ %% 3
+⊐  ⟨(0÷0)⊸+, 2, 2, 3, (0÷0)⊸+⟩ %% 0‿1‿1‿2‿0
+⊒  ⟨(0÷0)⊸+, 2, 2, 3, (0÷0)⊸+⟩ %% 0‿0‿1‿0‿1
 
 # comparison
 w←1‿1⥊1 ⋄ x←1‿2⥊1           ⋄ {! (∾⟨"𝕨",•Repr𝕩,"𝕩: Expected equal shape prefix (1‿1 ≡ ≢𝕨, 1‿2 ≡ ≢𝕩)"⟩) ≡ w 𝕏⎊(•CurrentError∘@) x}¨ =‿≠‿<‿>‿≤‿≥
@@ -88,6 +92,10 @@ w←1‿1⥊1 ⋄ x←2⥊1 ⋄ w‿x <¨↩   ⋄ {! (∾⟨"𝕨",•Repr𝕩,
 2‿3‿0‿1/4‿3⥊↕⋈12 %% ⋈¨6‿3⥊0‿1‿2‿0‿1‿2‿3‿4‿5‿3‿4‿5‿3‿4‿5‿9‿10‿11
 2‿3‿0‿1/↕4 %% 6⥊0‿0‿1‿1‿1‿3
 2‿3‿0‿1/↕⋈4 %% ⋈¨6⥊0‿0‿1‿1‿1‿3
+""/↕3 %% ↕3
+!"𝕨/𝕩: Length of compound 𝕨 must be at most rank of 𝕩" % "abc"/↕3
+!"𝕨/𝕩: Length of compound 𝕨 must be at most rank of 𝕩" % 1‿'a'/↕2
+!"𝕨/𝕩: 𝕨 must consist of natural numbers" % "ab"/2‿2⥊9
 !"Expected non-negative integer, got ¯3" % 2‿¯3/↕2
 !"Expected non-negative integer, got ¯3e20" % 2‿¯3e20/↕2
 !"𝕨/𝕩: Lengths of components of 𝕨 must match 𝕩 (3 ≠ 4)" % 1‿2‿3/4‿5‿6‿7
@@ -107,10 +115,18 @@ w←1‿1⥊1 ⋄ x←2⥊1 ⋄ w‿x <¨↩   ⋄ {! (∾⟨"𝕨",•Repr𝕩,
 !"𝕨/𝕩: Compound 𝕨 must have rank at most 1" % (1‿2⥊<↕4) / ↕4
 !"𝕨/𝕩: 𝕨 must consist of natural numbers" % ⟨↕4, 1‿2‿3.5‿4⟩ / 4‿4⥊↕16
 !"𝕨/𝕩: 𝕨 must consist of natural numbers" % ⟨↕4, 3.5⟩       / 4‿4⥊↕16
+!"𝕨/𝕩: 𝕨 must consist of natural numbers" % (<@)/↕3
+!"𝕨/𝕩: 𝕨 must consist of natural numbers" % (<{+})/↕3
+!"𝕨/𝕩: 𝕨 cannot be negative" % (<¯2)/↕3
+!"𝕨/𝕩: Lengths of components of 𝕨 must match 𝕩 (1 ≠ 3)" % ⟨¯2⟩/↕3
+!"Expected non-negative integer, got ¯2" % ⟨¯2⟩/↕1
 !"Integer out of range: 4.611686018427388e18" % ⟨1,2⋆62⟩ / 2‿2⥊<⋈0 %USZ32
 !"Integer out of range: 4.611686018427388e18" % ⟨1,2⋆62⟩ / 2⥊<⋈0 %USZ32
 !"Out of memory" % ⟨1,2⋆62⟩ / 2‿2⥊<⋈0 %USZ64
 !"Out of memory" % ⟨1,2⋆62⟩ / 2⥊<⋈0 %USZ64
+!"Out of memory" % (1e13×↕1000) / ↕1000
+!"Out of memory" % (16 ⥊ ¯1e9 + 2⋆60) / ↕16
+!"Out of memory" % (4⥊2⋆60)/⟨4,2⋆8⟩⥊1
 ⟨↕4, 0,   ↕5⟩ / 4‿4‿5⥊@ %% 6‿0‿10⥊@
 ⟨↕4, 4⥊0, ↕5⟩ / 4‿4‿5⥊@ %% 6‿0‿10⥊@
 1‿0‿2    / ⋈¨ ["ab","cd","ef"] %% ⋈¨ ["ab","ef","ef"]
@@ -130,12 +146,23 @@ w←1‿1⥊1 ⋄ x←2⥊1 ⋄ w‿x <¨↩   ⋄ {! (∾⟨"𝕨",•Repr𝕩,
 !"Integer out of range: 1e20" % %USE evar ⋄ /_evar 1e20⌾(100⊸⊑) 200⥊10
 ! (//⁼)⊸≡8‿15‿25‿32‿90‿101‿155‿165‿584‿594‿894‿912‿1312‿1328‿1350‿1367‿1391‿1407‿1469‿1486‿1559‿1566‿1576‿1582‿1592‿1599‿1609‿1616‿1626‿1635‿4086‿4093‿4114‿4122‿4141‿4149‿4169‿4177
 /⁼1e4⥊1‿2 %% 0‿5000‿5000
+!"Expected integer, got character" % /⁼ "hello"
 !"/⁼𝕩: 𝕩 cannot contain negative numbers" % %USE evar ⋄ /⁼_evar (↕10) ∾ ¯2 ∾ 20+↕10
 !"/⁼𝕩: 𝕩 must consist of natural numbers" % %USE evar ⋄ /⁼_evar (↕10) ∾ 2.2 ∾ 20+↕10
 !"/⁼𝕩: 𝕩 must consist of natural numbers" % %USE evar ⋄ /⁼_evar (↕10) ∾ 1e20 ∾ 20+↕10
 
 # 𝕨⊏𝕩
-•internal.ElType¨ {(100⥊↕2)⊏𝕨‿𝕩}⌜˜ ⟨0, 1, 2, 127, 128, 32767, 32768, ¯32767, ¯32768, ¯32769, ¯1+2⋆31, 2⋆31, @, @+1, @+255, @+256, @+1114111, {⇐}, 1‿2⟩ %% (8-(=⌜˜<⟜5)×8-⌈⌜˜) 0‿0‿1‿1‿2‿2‿3‿2‿2‿3‿3‿4‿5‿5‿5‿6‿7‿8‿8
+(
+  vals ← ⟨0, 1, 2, 127, 128, 32767, 32768, ¯32767, ¯32768, ¯32769, ¯1+2⋆31, 2⋆31, @, @+1, @+255, @+256, @+1114111, {⇐}, 1‿2⟩
+  e1 ← ⌈⌜˜ 0‿0‿1‿1‿2‿2‿3‿2‿2‿3‿3‿4‿8‿8‿8‿8‿8‿8‿8
+  e2 ← (8-(=⌜˜<⟜5)×8-⌈⌜˜) 0‿0‿1‿1‿2‿2‿3‿2‿2‿3‿3‿4‿5‿5‿5‿6‿7‿8‿8
+  a ← 100⥊↕2
+  ⟨Variation, ListVariations, ElType⟩ ← •internal
+  { 𝕊 v:
+    ! e1 ≡ ElType¨ {(v Variation a) ⊏ 𝕨‿𝕩}⌜˜ vals
+    ! e2 ≡ ElType¨ {(v Variation a) ⊏ 𝕨⋈𝕩}⌜˜ vals
+  }¨ "i"ListVariations a
+)
 0‿0‿0 ⊏ 1‿3⥊↕10 %% 3‿3⥊0‿1‿2
 ≢¨ ⟨(2‿0‿3‿4‿5⥊1)⊏9‿8‿0‿7⥊0 ⋄ ⟨⟩⊏0‿8‿0‿7⥊0 ⋄ (2‿3‿0‿4⥊1)⊏↕10⟩ %% ⟨2‿0‿3‿4‿5‿8‿0‿7,0‿8‿0‿7,2‿3‿0‿4⟩
 !"𝕨⊏𝕩: Indexing out-of-bounds (1∊𝕨, 1≡≠𝕩)" % ⊏˜(200⥊1)⥊1
@@ -158,10 +185,13 @@ w←1‿1⥊1 ⋄ x←2⥊1 ⋄ w‿x <¨↩   ⋄ {! (∾⟨"𝕨",•Repr𝕩,
 !"𝕨⊏𝕩: 𝕨 must be an array of numbers or list of such arrays" % %USE eqerr ⋄ evar ← {%USE evar ⋄ evar} ⋄ ⟨⋈⋈{⇐}, <<<4, ⋈⋈⋈4, 1.5‿{⋈}⟩ ⊏_evar _eqerr ⟨↕10, 10‿10⥊↕100⟩
 !"𝕨⊏𝕩: Compound 𝕨 must have rank at most 1" % %USE eqerr ⋄ ⟨≍⋈↕5⟩ ⊏_eqerr ⟨↕10, 10‿10⥊↕100⟩
 !"Expected integer, got namespace" % %USE eqerr ⋄ ⟨≍⋈{⇐}, ⋈{⇐}⟩ ⊏_eqerr ⟨↕10, 10‿10⥊↕100⟩
+%USE eqvar ⋄ (⌽↕4) ⊏_eqvar 10×↕10 %% 30‿20‿10‿0
+%USE eqvar ⋄ (4⥊0) ⊏_eqvar 40‿30‿20 %% 4⥊40
+%USE eqvar ⋄ 1‿0‿0 ⊏_eqvar "ab"⌾(0‿1⊸⊏) ↕2 %% "baa"
 %USE eqvar ⋄ (⌽↕4) ⋈⊸⊏_eqvar "abcdefgh" %% "dcba"
 (<↕3) ⊏ "hello" %% "hel"
 (<<4) ⊏ "hello" %% <'o'
-%USE tvar ⋄ !∘≡¨⟜⊏ ∾ {⥊𝕨 ⊏⎊(•CurrentError∘⊢) _tvar 𝕩}´¨ ⟨⟨0‿1, ⋈0⟩ ⋄ ⟨0‿1, "?"⟩ ⋄ ⟨0‿1, ≍0‿1⟩⟩
+!"𝕨⊏𝕩: Indexing out-of-bounds (1∊𝕨, 1≡≠𝕩)" % %USE eqerr ⋄ evar ← {%USE evar ⋄ evar} ⋄ ⊏_evar´ _eqerr ⟨⟨0‿1, ⋈0⟩ ⋄ ⟨0‿1, "?"⟩ ⋄ ⟨0‿1, ≍0‿1⟩⟩
 a←↕2 ⋄ ! "e" ≡ (↕10){b←a‿a‿a‿a‿a‿a‿a‿a‿a‿a ⋄ 𝕨⊏⎊"e"𝕩}⟨1‿2,3‿4⟩ ⋄ ! 0‿1 ≡ a
 %USE eqvar ⋄ {1‿¯1 {r←𝕨⊏𝕩 ⋄ ! 𝕩 ≥○•internal.ElType r ⋄ r}_eqvar 𝕩}¨ ⟨↕2, ↕4, "hello", ⟨"ab", "cd", "ef"⟩, ↕⋈4⟩
 !"𝕨⊏𝕩: 𝕩 cannot be a unit" % %USE eqerr ⋄ ⟨0, ⟨⟩⟩ ⊏_eqerr ⟨<"a", <5, <{⇐}⟩
@@ -174,6 +204,8 @@ a←↕2 ⋄ ! "e" ≡ (↕10){b←a‿a‿a‿a‿a‿a‿a‿a‿a‿a ⋄ �
 !"𝕨⊑𝕩: 𝕨 contained a non-integer" % ⟨0.1⟩⊑↕3
 !"𝕨⊑𝕩: 𝕨 contained a non-integer" % ⟨2⋆80⟩⊑↕3
 !"𝕨⊑𝕩: Leaf arrays in 𝕨 must have rank 1 (element: (1‿2⥊1‿2))" % %USE evar ⋄ (≍1‿2) {⟨𝕨⟩⊑𝕩}_evar ↕5‿5
+!"𝕨⊑𝕩: Leaf arrays in 𝕨 must have rank 1 (element: (<2))" % (<2)⊑↕3
+!"𝕨⊑𝕩: Leaf arrays in 𝕨 must have rank 1 (element: (<1))" % (<1)⊑"foo"‿"bar"‿"baz"
 %USE eqvar ⋄ 1‿2 ⊑_eqvar ↕5‿5 %% 1‿2
 
 # >𝕩
@@ -194,10 +226,10 @@ a←↕2 ⋄ ! "e" ≡ (↕10){b←a‿a‿a‿a‿a‿a‿a‿a‿a‿a ⋄ �
 {a←↕3 ⋄ !'e'≡>⎊'e' ⟨a, a, ↕2, a, a⟩ ⋄ ! 1≡•internal.Refc a}
 {a←↕3 ⋄      >     ⟨a, a, ↕3, a, a⟩ ⋄ ! 1≡•internal.Refc a}
 {a←(200⥊1)⥊↕3 ⋄ ! 'e'≡>⎊'e' (200⥊1)⥊⟨a, a, ↕2, a, a⟩ ⋄ ! 1≡•internal.Refc a}
-%USE var ⋄ a←2‿3⥊↕6 ⋄ b←2‿3⥊"abcdef" ⋄ !∘≡¨⟜⊏ ⥊ (LV a) {>1‿2‿1‿1⥊𝕨‿𝕩V¨a‿b}⌜ LV b
-%USE var ⋄ a←b←2‿3⥊<<˘"abcd" ⋄ !∘≡¨⟜⊏ ⥊ (LV a) {>1‿2‿1‿1⥊𝕨‿𝕩V¨a‿b}⌜ LV b
-%USE var ⋄ {a‿b: ! ∧´(⊏≡¨⊢)⥊ (LV a) {>1‿2‿1‿1⥊𝕨‿𝕩V¨a‿b}⌜ LV b}¨ ⟨2⥊<2‿3⥊<<˘"abcd" ⋄ ⟨2‿3⥊↕6,2‿3⥊"abcdef"⟩⟩
-%USE var ⋄ {a‿b: ! ∧´(⊏≡¨⊢)⥊ (LV a) {∾𝕨‿𝕩V¨a‿b}⌜ LV b}¨ ⟨2⥊<2‿3⥊<<˘"abcd" ⋄ ⟨2‿3⥊↕6,2‿3⥊"abcdef"⟩⟩
+%USE eqvar ⋄ a←2‿3⥊↕6 ⋄ b←2‿3⥊"abcdef" ⋄ a {>1‿2‿1‿1⥊𝕨‿𝕩}_eqvar b %% 1‿2‿1‿1‿2‿3⥊0‿1‿2‿3‿4‿5‿'a'‿'b'‿'c'‿'d'‿'e'‿'f'
+%USE eqvar ⋄ a←b←2‿3⥊<<˘"abcd"         ⋄ a {>1‿2‿1‿1⥊𝕨‿𝕩}_eqvar b %% 1‿2‿1‿1‿2‿3⥊<<¨"abcd"
+%USE eqvar ⋄ {>1‿2‿1‿1⥊𝕨‿𝕩}_eqvar´¨ ⟨2⥊<2‿3⥊<<˘"abcd" ⋄ ⟨2‿3⥊↕6,2‿3⥊"abcdef"⟩⟩ %% ⟨1‿2‿1‿1‿2‿3⥊<<¨"abcd", 1‿2‿1‿1‿2‿3⥊0‿1‿2‿3‿4‿5‿'a'‿'b'‿'c'‿'d'‿'e'‿'f'⟩
+%USE eqvar ⋄         {∾𝕨‿𝕩}_eqvar´¨ ⟨2⥊<2‿3⥊<<˘"abcd" ⋄ ⟨2‿3⥊↕6,2‿3⥊"abcdef"⟩⟩ %% ⟨        4‿3⥊<<¨"abcd",         4‿3⥊0‿1‿2‿3‿4‿5‿'a'‿'b'‿'c'‿'d'‿'e'‿'f'⟩
 
 # <𝕩
 ! ⊑∘<¨⊸≡ ∾⟜- ⥊(¯2+↕5)+⌜2⋆↕40
@@ -266,9 +298,9 @@ a←↕2 ⋄ ! "e" ≡ (↕10){b←a‿a‿a‿a‿a‿a‿a‿a‿a‿a ⋄ �
 !"»𝕩: 𝕩 cannot be a scalar" % »<0
 
 # ⍉𝕩
-%USE var ⋄ !∘≡¨⟜⊏ {⍉ 𝕩 V a}¨ LV a←2‿3‿4•rand.Range 2
-%USE var ⋄ !∘≡¨⟜⊏ {⍉ 𝕩 V a}¨ LV a←⋈¨ 2‿3‿4•rand.Range 2
-%USE var ⋄ !∘≡¨⟜⊏ {⍉ 𝕩 V a}¨ LV a←@+2‿3‿4•rand.Range 100
+%USE eqvar ⋄ ⍉_eqvar 2‿3‿4•rand.Range 2
+%USE eqvar ⋄ ⍉_eqvar ⋈¨ 2‿3‿4•rand.Range 2
+%USE eqvar ⋄ ⍉_eqvar @+2‿3‿4•rand.Range 100
 
 # ⌽𝕩
 %USE var ⋄ {{! 𝕩 ≡ ⌽"Ai8"V⌽𝕩} 𝕩•rand.Range 2}¨ ↕1000
@@ -293,6 +325,7 @@ a←↕2 ⋄ ! "e" ≡ (↕10){b←a‿a‿a‿a‿a‿a‿a‿a‿a‿a ⋄ �
 1‿2‿3 ⌽ 4‿4‿4‿4⥊↕256 %% F←{(4|𝕨+↕4)⊏𝕩} ⋄ 3 F⎉2 2 F˘ 1 F 4‿4‿4‿4⥊↕256
 (1+1e15) ⌽ ↕10 %% (1+↕9)∾0
 (-1+1e15) ⌽ ↕10 %% 9∾↕9
+b←1↓1∾a←"hello" ⋄ b ⌽⎊'e' ⥊⟜1⍟2 5 ⋄ a ≡○•Hash b %% 1
 
 # ↑𝕩 & ↓𝕩
 !"↑𝕩: 𝕩 must have rank at least 1" % ↑0
@@ -303,14 +336,10 @@ a←↕2 ⋄ ! "e" ≡ (↕10){b←a‿a‿a‿a‿a‿a‿a‿a‿a‿a ⋄ �
 ≠⍷•Hash¨ ⟨10000↑•internal.Squeeze 1e9∾˜↕10000, ↕10000⟩ %% 1
 
 # ¨
-  1 {𝕊:1‿2}¨ 1 %% <1‿2
-  1 {𝕊:1‿2}¨<1 %% <1‿2
-(<1){𝕊:1‿2}¨ 1 %% <1‿2
-(<1){𝕊:1‿2}¨<1 %% <1‿2
-  1 1‿2¨ 1 %% <1‿2
-  1 1‿2¨<1 %% <1‿2
-(<1)1‿2¨ 1 %% <1‿2
-(<1)1‿2¨<1 %% <1‿2
+%USE eqall ⋄ Eqall {𝕊: 1‿2}¨⌜˜ ⟨1, <1⟩ %% <1‿2
+%USE eqall ⋄ Eqall      1‿2¨⌜˜ ⟨1, <1⟩ %% <1‿2
+%USE eqall ⋄ Eqall ⟨1‿2˙,1‿2⟩ {𝕨¨˜ 𝕩}⌜ ⟨↕5, "hello", ↕⋈5⟩ %% 5⥊<1‿2
+%USE eqall ⋄ Eqall ⟨{𝕊:1‿2}⟩  {𝕨¨˜ 𝕩}⌜ ⟨↕5, "hello", ↕⋈5⟩ %% 5⥊<1‿2
 !"Mapping: Expected equal shape prefix (⟨2⟩ ≡ ≢𝕨, 4‿4 ≡ ≢𝕩)" % 1‿2+¨↕4‿4
 !"Mapping: Expected equal shape prefix (⟨2⟩ ≡ ≢𝕨, ⟨4⟩ ≡ ≢𝕩)" % 1‿2+¨↕4
 ⊢¨ {a←𝕩 ⋄ ⥊𝕩} 2‿3⥊<"a"      %% 6⥊<"a"
@@ -330,6 +359,13 @@ a←↕2 ⋄ ! "e" ≡ (↕10){b←a‿a‿a‿a‿a‿a‿a‿a‿a‿a ⋄ �
 !"Expected non-negative integer, got character" % ↕"hi"
 !"↕𝕩: 𝕩 must be either an integer or integer list (had rank 2)" % ↕2‿2⥊1
 !"↕𝕩: Result rank too large (300≡≠𝕩)" % ↕300⥊1
+!"↕𝕩: Result too large" % ↕20⥊10
+↕⟨⟩ %% <↕0
+≢↕↕100 %% ↕100
+↕⋈10 %% ⋈¨ ↕10
+{! (⋈¨↕𝕩) ≡ ↕⋈𝕩}¨ 0‿1+⌜2⋆7‿15
+{! ((<⟨⟩)<⊸∾⌜´ ↕¨ 𝕩) ≡ ↕𝕩}¨ 1+ (∾⟜-65‿64‿63‿3‿5) ↑⌜ ⟨↕0,1,1‿1⟩
+{! ((<⟨⟩)<⊸∾⌜´ ↕¨ 𝕩) ≡ ↕𝕩}¨ ⌽¨⊸∾ ⥊ 0‿1‿2 ⋈⌜ (126+↕7) ∾ 0‿1 + 2⋆15
 
 # 𝕨↕𝕩
 !"𝕨↕𝕩: Length of 𝕨 must be at most rank of 𝕩" % 0↕0
@@ -347,7 +383,39 @@ a←↕2 ⋄ ! "e" ≡ (↕10){b←a‿a‿a‿a‿a‿a‿a‿a‿a‿a ⋄ �
 ≡0 %% 0
 
 # 𝕨⥊𝕩
-!"𝕨⥊𝕩: Result rank too large" % (0∾300⥊2)⥊0
+!"𝕨⥊𝕩: Result rank too large (301 ≡ ≠𝕨)" % (0∾300⥊2)⥊0
+!"Out of memory" % %USE eqerr ⋄ {(𝕩⥊2) ⥊ 1.1}¨_eqerr 63-↕10
+!"Out of memory" % %USE eqerr ⋄ {(𝕩⥊2) ⥊ 7⥊1.1}¨_eqerr 63-↕10
+1e8‿1e8‿⌊‿1e8‿1e8⥊↕5 %% 1e8‿1e8‿0‿1e8‿1e8⥊0
+⍷ {1e8‿1e8‿𝕩‿1e8‿1e8⥊↕0}¨ ∘‿⌽‿↑ %% ⋈ 1e8‿1e8‿0‿1e8‿1e8⥊0
+!"𝕨⥊𝕩: 𝕨 too large" % %USE eqerr ⋄ {1e8‿1e8‿𝕩‿1e8‿1e8⥊"foo"}_eqerr ∘‿⌽‿↑
+
+!"𝕨⥊𝕩: 𝕨 must be a list or unit (4 ≡ =𝕩)" % %USE eqerr ⋄ ⟨3‿1‿4‿1⥊2⟩ ⥊_eqerr ⟨↕10, ↕0, 4⟩
+!"𝕨⥊𝕩: Empty 𝕩 and non-empty result" % %USE eqerr ⋄ ⟨10‿10, 1, ⟨⟩, ⋈1⟩ ⥊_eqerr ⟨↕0, "", 0‿0⥊0, 10‿0⥊"", 0‿10⥊<"hi"⟩
+!"𝕨⥊𝕩: Empty 𝕩 and non-empty result" % %USE eqvar ⋄ (↕0) ⥊_eqvar ↕0
+!"𝕨⥊𝕩: 𝕨 must consist of natural numbers or ∘ ⌊ ⌽ ↑ (contained namespace)" % %USE eqerr ⋄ ({⟨𝕩,⋈𝕩,1‿𝕩⟩} {⇐}) ⥊_eqerr ⟨↕0, 1, ↕10⟩
+!"𝕨⥊𝕩: 𝕨 must consist of natural numbers or ∘ ⌊ ⌽ ↑ (contained function)"  % %USE eqerr ⋄ ({⟨𝕩,⋈𝕩,1‿𝕩⟩}{+¨}) ⥊_eqerr ⟨↕0, 1, ↕10⟩
+!"𝕨⥊𝕩: 𝕨 must consist of natural numbers or ∘ ⌊ ⌽ ↑ (contained function)"  % %USE eqerr ⋄ ({⟨𝕩,⋈𝕩,1‿𝕩⟩}•out) ⥊_eqerr ⟨↕0, 1, ↕10⟩
+!"𝕨⥊𝕩: 𝕨 must consist of natural numbers or ∘ ⌊ ⌽ ↑ (contained ¨)"         % %USE eqerr ⋄ ({⟨𝕩,⋈𝕩,1‿𝕩⟩} {¨}) ⥊_eqerr ⟨↕0, 1, ↕10⟩
+!"𝕨⥊𝕩: 𝕨 must consist of natural numbers or ∘ ⌊ ⌽ ↑ (contained ∧)"         % %USE eqerr ⋄ ({⟨𝕩,⋈𝕩,1‿𝕩⟩} {∧}) ⥊_eqerr ⟨↕0, 1, ↕10⟩
+!"𝕨⥊𝕩: 𝕨 must consist of natural numbers or ∘ ⌊ ⌽ ↑ (contained 1e40)"      % %USE eqerr ⋄ ({⟨𝕩,⋈𝕩,1‿𝕩⟩}1e40) ⥊_eqerr ⟨↕0, 1, ↕10⟩
+!"𝕨⥊𝕩: 𝕨 must consist of natural numbers or ∘ ⌊ ⌽ ↑ (contained ¯10)"       % %USE eqerr ⋄ ({⟨𝕩,⋈𝕩,1‿𝕩⟩} ¯10) ⥊_eqerr ⟨↕0, 1, ↕10⟩
+!"𝕨⥊𝕩: 𝕨 must consist of natural numbers or ∘ ⌊ ⌽ ↑ (contained 10.5)"      % %USE eqerr ⋄ ({⟨𝕩,⋈𝕩,1‿𝕩⟩}10.5) ⥊_eqerr ⟨↕0, 1, ↕10⟩
+!"𝕨⥊𝕩: Shape must be exact when reshaping with ∘ (⟨42⟩ ≡ ≢𝕩, 10 is the product of non-computed axis)" % ∘‿2‿5 ⥊ ↕42
+!"𝕨⥊𝕩: Can't compute axis when the rest of the shape is empty" % %USE eqerr ⋄ ∘‿⌽‿↑‿⌊ {4‿𝕨‿0 ⥊ 𝕩}_eqerr ⟨↕1, ↕0⟩
+⍷ ⥊⟜⟨⟩¨ ∘‿⌊‿↑‿⌽ %% ⋈ ⟨⟩
+⍷ ⥊⟜1¨ ∘‿⌊‿↑‿⌽ %% ⋈ ⟨1⟩
+⍷ ⥊⟜"hello"¨ ∘‿⌊‿↑‿⌽ %% ⋈ "hello"
+!"𝕨⥊𝕩: 𝕨 contained multiple computed axes" % ∘‿∘⥊1
+!"𝕨⥊𝕩: 𝕨 contained multiple computed axes" % ∘‿∧⥊1
+
+%USE eqvarv ⋄  ↑‿4 ⥊_eqvarv_"i" ↕9 %% [0‿1‿2‿3, 4‿5‿6‿7, 8‿0‿0‿0]
+%USE eqvar  ⋄  ⌽‿4 ⥊_eqvar      ↕9 %% [0‿1‿2‿3, 4‿5‿6‿7, 8‿0‿1‿2]
+%USE eqvar  ⋄  ⌊‿4 ⥊_eqvar      ↕9 %% [0‿1‿2‿3, 4‿5‿6‿7]
+%USE eqvarv ⋄  ↑‿4 ⥊_eqvarv_"i" "abcde" %% ["abcd", "e   "]
+%USE eqvar  ⋄  ⌽‿4 ⥊_eqvar      "abcde" %% ["abcd", "eabc"]
+%USE eqvar  ⋄  ⌊‿4 ⥊_eqvar      "abcde" %% ["abcd"]
+%USE eqvar  ⋄  2‿2 ⥊_eqvar ↕1000 %% [0‿1,2‿3]
 
 # 𝕨⍷𝕩
 %USE eqvar ⋄ "ab" ⍷_eqvar "" %% ⟨⟩
@@ -358,6 +426,9 @@ a←↕2 ⋄ ! "e" ≡ (↕10){b←a‿a‿a‿a‿a‿a‿a‿a‿a‿a ⋄ �
 %USE eqvar ⋄ ⟨{⇐},{⇐}⟩ ⍷_eqvar ↕0 %% ⟨⟩
 %USE eqvar ⋄ (↕0) ⍷_eqvar 1‿0 %% 1‿1‿1
 %USE eqvar ⋄ "ab" ⍷_eqvar 0‿5⥊"ab" %% 0‿4⥊0
+%USE eqvar ⋄ ⟨0÷0,1,0÷0⟩ ⍷_eqvar ⟨0÷0,1⟩⊏˜ "01010000010101010"-'0' %% 15⥊0
+%USE eqvar ⋄ ⟨0÷0,1,0÷0⟩ ⍷_eqvar 4/≍⟨0÷0,1⟩⊏˜ "01010000010101010"-'0' %% 4‿15⥊0
+%USE eqvar ⋄ [1⋈0÷0, ⋈˜0÷0] ⍷_eqvar 10‿10 ⥊ 1∾13⥊0÷0 %% 9‿9⥊0
 (0⥊0)⍷1‿0⥊0 %% 1‿1⥊1
 ⟨⟩⍷1‿0⥊"" %% 1‿1⥊1
 (0‿0‿0‿0‿0‿0⥊0)⍷1‿0‿0‿0‿0‿0‿0⥊0 %% 1‿1‿1‿1‿1‿1‿1⥊1
@@ -512,6 +583,10 @@ a←↕2 ⋄ ! "e" ≡ (↕10){b←a‿a‿a‿a‿a‿a‿a‿a‿a‿a ⋄ �
 !"𝔽´𝕩: 𝕩 must be a list (3‿3 ≡ ≢𝕩)" % +´↕3‿3
 !"𝕨𝔽´𝕩: 𝕩 must be a list (3‿3 ≡ ≢𝕩)" % 2+´↕3‿3
 !"𝔽´𝕩: Identity not found" % •internal.Keep´⟨⟩
+%USE eqvar ⋄ +´_eqvar 1e3⥊1e2 %% 1e5
+%USE eqvar ⋄ +´_eqvar 1e3⥊↕100 %% 4950e1
+%USE eqvar ⋄ +´_eqvar 1e4⥊-↕100 %% ¯4950e2
+%USE eqvar ⋄ +´_eqvar 1e4⥊-1e9 %% ¯1e13
 +⌜´↕0 %% <0
 ×⌜´↕0 %% <1
 +⌜⌜⌜´↕0 %% <<<0
@@ -527,9 +602,15 @@ a←↕2 ⋄ ! "e" ≡ (↕10){b←a‿a‿a‿a‿a‿a‿a‿a‿a‿a ⋄ �
 (   ↕4) +˝ ↕10‿4 %% (↕4) + 45 ⋈¨ 10×↕4
 (<¨ ↕4) +˝ ↕10‿4 %% (↕4) + 45 ⋈¨ 10×↕4
 (0‿5⊸+¨↕4) +˝ ↕10‿4 %% ((↕4) + 45) ⋈¨ 5 + 11×↕4
+{! 1≥•internal.ElType 𝕏˜ "Ah"•internal.Variation 10⥊1}¨ ⟨+,-,×,÷,⋆,√,⌊,⌈,|,¬,∧,∨,<,>,≠,=,≤,≥⟩ # insert_scal relies on all pervasive dyadic builtins implicitly squeezing
 
 # ⌜
 !"𝕨𝔽⌜𝕩: Result rank too large (200≡=𝕨, 200≡=𝕩)" % +⌜˜(200⥊1)⥊1
+%USE eqvar ⋄ (! + ○•internal.Keep⌜ ≡ + ⌜_eqvar)○↕⌜˜ 0‿1‿2‿4‿9‿16
+%USE eqvar ⋄ (! -˜○•internal.Keep⌜ ≡ -˜⌜_eqvar)○↕⌜˜ 0‿1‿2‿4‿9‿16
+%USE eqvar ⋄ (!  ⊢○•internal.Keep⌜ ≡  ⊢⌜_eqvar)○↕⌜˜ 0‿1‿2‿4‿9‿16
+%USE eqvar ⋄ (!  ⊣○•internal.Keep⌜ ≡  ⊣⌜_eqvar)○↕⌜˜ 0‿1‿2‿4‿9‿16
+%USE eqvar ⋄ (!  9○•internal.Keep⌜ ≡  9⌜_eqvar)○↕⌜˜ 0‿1‿2‿4‿9‿16
 
 # ˜
 5˜˝ "ab" %% 5
